@@ -1,0 +1,1 @@
+Plain text notes used to check that non-source files are discovered too.
