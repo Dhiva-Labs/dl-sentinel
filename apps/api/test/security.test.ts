@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { ScanEngine } from '@dl-sentinel/engine';
-import { bearer, postJson, startTestServer, vulnerableApp } from './support.js';
+import { bearer, postJson, startTestServer, vulnerableApp, waitForScan } from './support.js';
 import type { TestServer } from './support.js';
+import type { ScanRecord } from '../src/index.js';
 import { PLANTED_SECRET_VALUES } from '../../../tests/support/index.js';
 
 /** Poll a file until it is non-empty or the timeout elapses. */
@@ -30,6 +31,8 @@ describe('secret redaction across the API', () => {
     ctx = await startTestServer();
     const res = await postJson(ctx.base, '/api/scans', ctx.token, { path: vulnerableApp() });
     scanId = ((await res.json()) as { id: string }).id;
+    // Findings/reports are only served for completed scans; wait for the worker.
+    await waitForScan(ctx, scanId);
   });
 
   afterAll(async () => {
@@ -69,25 +72,31 @@ describe('persistence across restart', () => {
     rmSync(dataDir, { recursive: true, force: true });
   });
 
-  it('a fresh server on the same data dir lists prior scans', async () => {
+  it('a fresh server on the same data dir lists prior completed scans', async () => {
     const first = await startTestServer({ dataDir });
     const created = (await (
       await postJson(first.base, '/api/scans', first.token, { path: vulnerableApp() })
     ).json()) as { id: string };
+    // Let the scan complete and persist before restarting.
+    await waitForScan(first, created.id);
     await first.cleanup();
 
     const second = await startTestServer({ dataDir });
     try {
       const summaries = (await (
         await fetch(`${second.base}/api/scans`, { headers: bearer(second.token) })
-      ).json()) as Array<{ id: string }>;
-      expect(summaries.some((s) => s.id === created.id)).toBe(true);
+      ).json()) as Array<{ id: string; status: string }>;
+      const summary = summaries.find((s) => s.id === created.id);
+      expect(summary?.status).toBe('completed');
 
-      // The full report survives too.
+      // The full record and its report survive the restart.
       const detail = await fetch(`${second.base}/api/scans/${created.id}`, {
         headers: bearer(second.token),
       });
       expect(detail.status).toBe(200);
+      const record = (await detail.json()) as ScanRecord;
+      expect(record.status).toBe('completed');
+      expect(record.report).toBeDefined();
     } finally {
       await second.cleanup();
     }
@@ -132,7 +141,10 @@ describe('error responses', () => {
     assertCleanError(await badRequest.json());
   });
 
-  it('returns a generic 500 without leaking internal error detail', async () => {
+  it('a failed background scan never leaks internal error detail', async () => {
+    // The scan now runs asynchronously, so a thrown scan() surfaces as a failed
+    // record rather than a synchronous 500. The record's error must be sanitized:
+    // no raw thrown message, no stack trace, no source paths.
     const boom = 'INTERNAL-SECRET-DETAIL-should-not-leak';
     const badEngine: ScanEngine = {
       register: () => {},
@@ -143,15 +155,25 @@ describe('error responses', () => {
     };
     const broken = await startTestServer({ engineFactory: () => badEngine });
     try {
-      const res = await postJson(broken.base, '/api/scans', broken.token, {
+      const post = await postJson(broken.base, '/api/scans', broken.token, {
         path: vulnerableApp(),
       });
-      expect(res.status).toBe(500);
+      expect(post.status).toBe(202);
+      const { id } = (await post.json()) as { id: string };
+      const settled = await waitForScan(broken, id);
+      expect(settled.status).toBe('failed');
+
+      const res = await fetch(`${broken.base}/api/scans/${id}`, {
+        headers: bearer(broken.token),
+      });
+      expect(res.status).toBe(200);
       const text = await res.text();
       expect(text).not.toContain(boom);
-      const body = JSON.parse(text) as { error: { code: string; message: string } };
-      expect(body.error.code).toBe('internal_error');
-      expect(body.error.message).toBe('Internal server error');
+      expect(text).not.toMatch(/\bat\s+\S+\s+\(.*:\d+:\d+\)/);
+      expect(text).not.toContain('.ts:');
+      const record = JSON.parse(text) as ScanRecord;
+      expect(record.status).toBe('failed');
+      expect(record.error).toBe('Scan failed due to an internal error');
     } finally {
       await broken.cleanup();
     }

@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createServer } from '../src/index.js';
-import type { ServerLogger, ServerOptions, SentinelApiServer } from '../src/index.js';
+import type { ScanRecord, ServerLogger, ServerOptions, SentinelApiServer } from '../src/index.js';
 import { fixturePath } from '../../../tests/support/index.js';
 
 /** A logger that discards everything, keeping test output clean. */
@@ -62,6 +62,8 @@ export async function startTestServer(overrides: ServerOptions = {}): Promise<Te
     token: server.sentinel.token,
     dataDir,
     async cleanup() {
+      // Stop workers first so no job writes to the data dir after we remove it.
+      await server.queue.stop();
       await new Promise<void>((resolve, reject) => {
         server.close((err) => (err ? reject(err) : resolve()));
         // Force idle keep-alive sockets closed so close() settles promptly.
@@ -71,6 +73,36 @@ export async function startTestServer(overrides: ServerOptions = {}): Promise<Te
       if (ownsDataDir) rmSync(dataDir, { recursive: true, force: true });
     },
   };
+}
+
+/**
+ * Await a job reaching a terminal state deterministically (no fixed sleeps), via
+ * the in-process queue control surface. Assertions still go over HTTP.
+ */
+export function waitForScan(ctx: TestServer, id: string, timeoutMs = 10_000): Promise<ScanRecord> {
+  return ctx.server.queue.waitForJob(id, timeoutMs);
+}
+
+/**
+ * Poll `GET /api/scans/:id` over HTTP until the scan reaches a terminal status or
+ * the deadline elapses. Exercises the real polling flow a client would use.
+ */
+export async function pollScanHttp(
+  base: string,
+  token: string,
+  id: string,
+  timeoutMs = 10_000,
+): Promise<ScanRecord> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const res = await fetch(`${base}/api/scans/${id}`, { headers: bearer(token) });
+    if (res.status === 200) {
+      const record = (await res.json()) as ScanRecord;
+      if (record.status === 'completed' || record.status === 'failed') return record;
+    }
+    if (Date.now() > deadline) throw new Error(`Timed out polling scan ${id}`);
+    await new Promise((resolve) => setTimeout(resolve, 15));
+  }
 }
 
 /** Authorization header for a bearer token. */
