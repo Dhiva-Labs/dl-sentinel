@@ -257,24 +257,38 @@ describe.skipIf(!engineReady)('engine integration (@dl-sentinel/engine)', () => 
   });
 
   describe('cancellation', () => {
-    it('propagates an already-aborted signal into each scanner ScanContext', async () => {
+    it('rejects with AbortError before invoking scanners when the signal is already aborted', async () => {
       const engine = createEngine();
       const controller = new AbortController();
       controller.abort();
       const { plugin, state } = makeMockScanner('mock-abort-aware');
       engine.register(plugin);
 
-      // Cancellation may surface as a rejection, an empty-ish report, or a
-      // completed-but-partial report — the engine's exact contract for a
-      // signal already aborted before scan() starts isn't spelled out
-      // beyond "cooperative cancellation" (docs/architecture.md). What must
-      // hold regardless of that choice is that the scanner actually observed
-      // the abort via its ScanContext.
-      await engine
-        .scan({ target: fixturePath('vulnerable-app'), signal: controller.signal })
-        .catch(() => undefined);
+      await expect(
+        engine.scan({ target: fixturePath('vulnerable-app'), signal: controller.signal }),
+      ).rejects.toMatchObject({ name: 'AbortError' });
+      expect(state.calls).toBe(0);
+    });
 
-      expect(state.sawAbortedSignal).toBe(true);
+    it('rejects with AbortError, not a ScannerError, when aborted mid-scan', async () => {
+      const engine = createEngine();
+      const controller = new AbortController();
+      // Abort from inside the scanner while it iterates; the mock then throws
+      // on the next file because context.signal.aborted flipped — the engine
+      // must classify that throw as cancellation, proving the same signal
+      // reached the ScanContext.
+      const { plugin, state } = makeMockScanner('mock-abort-aware', {
+        findingsPerFile: () => {
+          controller.abort();
+          return undefined;
+        },
+      });
+      engine.register(plugin);
+
+      await expect(
+        engine.scan({ target: fixturePath('vulnerable-app'), signal: controller.signal }),
+      ).rejects.toMatchObject({ name: 'AbortError' });
+      expect(state.calls).toBe(1);
     });
   });
 
