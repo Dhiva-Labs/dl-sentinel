@@ -10,12 +10,21 @@ import {
   readJsonBody,
   scanNotReady,
   sendJson,
+  sendNoContent,
   sendText,
 } from './http.js';
 import type { ScanQueue } from './queue.js';
 import { resolveScanTarget } from './scan-path.js';
 import type { ReportStore } from './store.js';
-import type { ApiRule, ScanRecord, ServerLogger, SentinelRuntime } from './types.js';
+import type {
+  ApiRule,
+  HistoryEntry,
+  ScanRecord,
+  ScheduleRecord,
+  ServerLogger,
+  SentinelRuntime,
+  TrendPoint,
+} from './types.js';
 
 export interface HandlerContext {
   req: IncomingMessage;
@@ -25,7 +34,15 @@ export interface HandlerContext {
   store: ReportStore;
   queue: ScanQueue;
   logger: ServerLogger;
+  /** Injected clock, shared with the scheduler; drives `nextRunAt` arithmetic. */
+  now: () => number;
 }
+
+/**
+ * Smallest interval a schedule may specify. A tighter cadence would let a
+ * caller turn the scheduler into a scan-flood generator, so it is rejected.
+ */
+export const MIN_SCHEDULE_INTERVAL_MS = 60_000;
 
 const SEVERITIES = new Set<string>(SEVERITY_ORDER);
 const SCANNER_IDS = new Set<string>(BUILTIN_SCANNERS.map((scanner) => scanner.id));
@@ -164,6 +181,135 @@ function getReport(ctx: HandlerContext, id: string): void {
   sendText(ctx.res, 200, rendered, contentType);
 }
 
+/** Validate an interval: a finite number, integer, at or above the minimum. */
+function validateInterval(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new HttpError(400, 'validation_error', '"intervalMs" is required and must be a number');
+  }
+  const ms = Math.trunc(value);
+  if (ms < MIN_SCHEDULE_INTERVAL_MS) {
+    throw new HttpError(
+      400,
+      'validation_error',
+      `"intervalMs" must be at least ${MIN_SCHEDULE_INTERVAL_MS} (60 seconds)`,
+    );
+  }
+  return ms;
+}
+
+/** Parse an optional ?limit= into a positive integer; reject anything else. */
+function parseLimit(value: string | null): number | undefined {
+  if (value === null || value === '') return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new HttpError(400, 'validation_error', '"limit" must be a positive integer');
+  }
+  return parsed;
+}
+
+async function createSchedule(ctx: HandlerContext): Promise<void> {
+  const body = await readJsonBody(ctx.req, ctx.runtime.maxBodyBytes);
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new HttpError(400, 'validation_error', 'Request body must be a JSON object');
+  }
+  const record = body as Record<string, unknown>;
+  // Same isolation and scanner checks as an ad-hoc scan, up front.
+  const target = resolveScanTarget(ctx.runtime.scanRoot, record['path']);
+  const scanners = validateScanners(record['scanners']);
+  const intervalMs = validateInterval(record['intervalMs']);
+
+  const nextRunAt = new Date(ctx.now() + intervalMs).toISOString();
+  const created = ctx.store.createSchedule({
+    path: target,
+    intervalMs,
+    nextRunAt,
+    ...(scanners === undefined ? {} : { scanners }),
+  });
+  sendJson(ctx.res, 201, created);
+}
+
+function listSchedules(ctx: HandlerContext): void {
+  sendJson(ctx.res, 200, ctx.store.listSchedules());
+}
+
+function getScheduleById(ctx: HandlerContext, id: string): void {
+  const schedule = ctx.store.getSchedule(id);
+  if (schedule === undefined) throw notFound('Schedule not found');
+  sendJson(ctx.res, 200, schedule);
+}
+
+function deleteScheduleById(ctx: HandlerContext, id: string): void {
+  if (!ctx.store.deleteSchedule(id)) throw notFound('Schedule not found');
+  sendNoContent(ctx.res);
+}
+
+async function patchSchedule(ctx: HandlerContext, id: string): Promise<void> {
+  const existing = ctx.store.getSchedule(id);
+  if (existing === undefined) throw notFound('Schedule not found');
+
+  const body = await readJsonBody(ctx.req, ctx.runtime.maxBodyBytes);
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new HttpError(400, 'validation_error', 'Request body must be a JSON object');
+  }
+  const patch = body as Record<string, unknown>;
+
+  const updated: ScheduleRecord = { ...existing };
+  if (patch['enabled'] !== undefined) {
+    if (typeof patch['enabled'] !== 'boolean') {
+      throw new HttpError(400, 'validation_error', '"enabled" must be a boolean');
+    }
+    updated.enabled = patch['enabled'];
+  }
+  if (patch['intervalMs'] !== undefined) {
+    const intervalMs = validateInterval(patch['intervalMs']);
+    updated.intervalMs = intervalMs;
+    // A changed cadence takes effect from now, not from the old schedule.
+    updated.nextRunAt = new Date(ctx.now() + intervalMs).toISOString();
+  }
+  ctx.store.updateSchedule(updated);
+  sendJson(ctx.res, 200, updated);
+}
+
+function toHistoryEntry(scan: ScanRecord): HistoryEntry {
+  const stats = scan.report?.stats ?? { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+  return {
+    id: scan.id,
+    path: scan.path,
+    project: scan.report?.project ?? '',
+    finishedAt: scan.finishedAt ?? scan.createdAt,
+    stats,
+    findingCount: scan.report?.findings.length ?? 0,
+  };
+}
+
+function toTrendPoint(scan: ScanRecord): TrendPoint {
+  const stats = scan.report?.stats ?? { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+  return {
+    finishedAt: scan.finishedAt ?? scan.createdAt,
+    critical: stats.critical,
+    high: stats.high,
+    medium: stats.medium,
+    low: stats.low,
+    info: stats.info,
+    total: stats.critical + stats.high + stats.medium + stats.low + stats.info,
+  };
+}
+
+function getHistory(ctx: HandlerContext): void {
+  const target = ctx.url.searchParams.get('target') ?? undefined;
+  const limit = parseLimit(ctx.url.searchParams.get('limit'));
+  let scans = ctx.store.completedScans(target);
+  // completedScans() is oldest-first; a limit keeps the most recent N in that
+  // same chronological order.
+  if (limit !== undefined && scans.length > limit) scans = scans.slice(scans.length - limit);
+  sendJson(ctx.res, 200, scans.map(toHistoryEntry));
+}
+
+function getTrends(ctx: HandlerContext): void {
+  const target = ctx.url.searchParams.get('target') ?? undefined;
+  sendJson(ctx.res, 200, ctx.store.completedScans(target).map(toTrendPoint));
+}
+
 /**
  * Dispatch an authenticated `/api/*` request. Path parameters are matched by
  * segment; unknown paths are 404 and wrong methods on known paths are 405.
@@ -201,6 +347,25 @@ export async function routeApi(ctx: HandlerContext): Promise<void> {
   if (rest.length === 2 && first === 'reports' && second !== undefined) {
     if (method !== 'GET') throw methodNotAllowed('GET');
     return getReport(ctx, second);
+  }
+  if (rest.length === 1 && first === 'schedules') {
+    if (method === 'GET') return listSchedules(ctx);
+    if (method === 'POST') return createSchedule(ctx);
+    throw methodNotAllowed('GET, POST');
+  }
+  if (rest.length === 2 && first === 'schedules' && second !== undefined) {
+    if (method === 'GET') return getScheduleById(ctx, second);
+    if (method === 'PATCH') return patchSchedule(ctx, second);
+    if (method === 'DELETE') return deleteScheduleById(ctx, second);
+    throw methodNotAllowed('GET, PATCH, DELETE');
+  }
+  if (rest.length === 1 && first === 'history') {
+    if (method !== 'GET') throw methodNotAllowed('GET');
+    return getHistory(ctx);
+  }
+  if (rest.length === 1 && first === 'trends') {
+    if (method !== 'GET') throw methodNotAllowed('GET');
+    return getTrends(ctx);
   }
   throw notFound('Unknown API endpoint');
 }

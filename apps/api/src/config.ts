@@ -8,6 +8,7 @@ const DEFAULT_MAX_BODY_BYTES = 1024 * 1024; // 1 MiB
 const DEFAULT_RATE_WINDOW_MS = 60_000;
 const DEFAULT_RATE_MAX = 60;
 const DEFAULT_SCAN_CONCURRENCY = 2;
+const DEFAULT_SCHEDULER_INTERVAL_MS = 15_000;
 
 /** A logger that writes to stderr. Never used for request bodies or tokens. */
 export function stderrLogger(): ServerLogger {
@@ -73,6 +74,10 @@ export function resolveRuntime(options: ServerOptions, logger: ServerLogger): Se
   const scanConcurrency =
     options.scanConcurrency ?? parseIntEnv(env.SENTINEL_SCAN_CONCURRENCY, DEFAULT_SCAN_CONCURRENCY);
 
+  const schedulerIntervalMs =
+    options.schedulerIntervalMs ??
+    parseIntEnv(env.SENTINEL_SCHEDULER_INTERVAL_MS, DEFAULT_SCHEDULER_INTERVAL_MS);
+
   return {
     token,
     tokenGenerated,
@@ -82,5 +87,6 @@ export function resolveRuntime(options: ServerOptions, logger: ServerLogger): Se
     rateLimit,
     port,
     scanConcurrency,
+    schedulerIntervalMs,
   };
 }

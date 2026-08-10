@@ -8,6 +8,7 @@ import { HttpError, methodNotAllowed, sendError, sendJson } from './http.js';
 import { ScanQueue } from './queue.js';
 import { RateLimiter } from './rate-limit.js';
 import { routeApi } from './router.js';
+import { Scheduler } from './scheduler.js';
 import { createStaticServer } from './static.js';
 import type { StaticServer } from './static.js';
 import { ReportStore } from './store.js';
@@ -20,6 +21,7 @@ interface RequestDeps {
   limiter: RateLimiter;
   staticServer: StaticServer;
   logger: ServerLogger;
+  now: () => number;
 }
 
 /**
@@ -33,7 +35,7 @@ async function handleRequest(
   res: ServerResponse,
   deps: RequestDeps,
 ): Promise<void> {
-  const { runtime, store, queue, limiter, staticServer, logger } = deps;
+  const { runtime, store, queue, limiter, staticServer, logger, now } = deps;
   const method = req.method ?? 'GET';
   const url = new URL(req.url ?? '/', 'http://localhost');
   const pathname = url.pathname;
@@ -81,7 +83,7 @@ async function handleRequest(
         });
       }
 
-      await routeApi({ req, res, url, runtime, store, queue, logger });
+      await routeApi({ req, res, url, runtime, store, queue, logger, now });
       return;
     }
 
@@ -95,18 +97,23 @@ async function handleRequest(
 /**
  * Build the HTTP server without listening. The returned object is a Node
  * `http.Server` augmented with a `sentinel` property carrying the fully resolved
- * runtime (token, scan root, data dir, limits, concurrency) and a `queue`
- * property exposing background-worker controls (`waitForJob`, `drain`, `stop`)
+ * runtime (token, scan root, data dir, limits, concurrency), a `queue` property
+ * exposing background-worker controls (`waitForJob`, `drain`, `stop`), and a
+ * `scheduler` property exposing scheduling controls (`tick`, `start`, `stop`)
  * for tests and graceful shutdown.
  *
  * Existing scan records are loaded synchronously during construction, then
  * reconciled: any record left `running` by a previous process is marked `failed`
  * ("interrupted by restart"), and any record still `queued` is re-enqueued so the
  * background worker resumes it. Completed and failed records are never re-run.
+ * Persisted schedules are likewise reloaded, their `nextRunAt` recomputed so an
+ * overdue schedule runs once promptly (not once per missed interval), and the
+ * scheduler timer is started.
  */
 export function createServer(options: ServerOptions = {}): SentinelApiServer {
   const logger = options.logger ?? stderrLogger();
   const runtime = resolveRuntime(options, logger);
+  const now = options.now ?? Date.now;
   if (runtime.tokenGenerated) {
     // Required: print the generated token once so the operator can use it.
     logger.warn(
@@ -119,18 +126,26 @@ export function createServer(options: ServerOptions = {}): SentinelApiServer {
   const queue = new ScanQueue(store, engineFactory, runtime.scanConcurrency, logger);
   const limiter = new RateLimiter(runtime.rateLimit.windowMs, runtime.rateLimit.max);
   const staticServer = createStaticServer(logger, options.webRoot);
+  const scheduler = new Scheduler(store, queue, logger, runtime.schedulerIntervalMs, now);
 
   // Recover from an unclean shutdown before accepting traffic: fail interrupted
   // jobs and re-enqueue ones that never started.
   for (const id of store.reconcile(new Date().toISOString())) {
     queue.enqueue(id);
   }
+  // Reload schedules, recompute overdue nextRunAt sanely, then start ticking.
+  scheduler.resume();
+  scheduler.start();
 
   const server = httpCreateServer((req, res) => {
-    void handleRequest(req, res, { runtime, store, queue, limiter, staticServer, logger });
+    void handleRequest(req, res, { runtime, store, queue, limiter, staticServer, logger, now });
   });
   Object.defineProperty(server, 'sentinel', { value: runtime, enumerable: true });
   Object.defineProperty(server, 'queue', { value: queue, enumerable: true });
+  Object.defineProperty(server, 'scheduler', { value: scheduler, enumerable: true });
+  // Non-enumerable, off the public type: exposed only so a controlled shutdown
+  // (see test support) can await outstanding writes before removing the data dir.
+  Object.defineProperty(server, 'store', { value: store, enumerable: false });
   return server as SentinelApiServer;
 }
 

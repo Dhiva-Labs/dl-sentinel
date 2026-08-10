@@ -5,3 +5,6 @@ export * from './types.js';
 export * from './severity.js';
 export * from './html.js';
 export * from './stats.js';
+export * from './scan-status.js';
+export * from './trend.js';
+export * from './schedule.js';

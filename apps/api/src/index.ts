@@ -23,8 +23,12 @@ export type {
   SentinelRuntime,
   SentinelApiServer,
   ScanQueueControls,
+  SchedulerControls,
   ScanRecord,
   ScanStatus,
   ScanSummary,
+  ScheduleRecord,
+  HistoryEntry,
+  TrendPoint,
   ServerLogger,
 } from './types.js';

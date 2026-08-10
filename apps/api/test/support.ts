@@ -62,14 +62,26 @@ export async function startTestServer(overrides: ServerOptions = {}): Promise<Te
     token: server.sentinel.token,
     dataDir,
     async cleanup() {
-      // Stop workers first so no job writes to the data dir after we remove it.
-      await server.queue.stop();
+      // Deterministic teardown: nothing must write to the data dir after this
+      // point, or rmSync races the worker (intermittent ENOTEMPTY in the full
+      // suite). Order matters:
+      //   1. Stop the scheduler so it can't enqueue (and persist) new scans.
+      //   2. Close the server so no new request can enqueue work or start an
+      //      audit append.
+      //   3. Drain the queue so every queued/in-flight job finishes its writes,
+      //      then stop the pool.
+      //   4. Flush outstanding async writes (audit-log appends).
+      // Only then is it safe to remove the directory.
+      server.scheduler.stop();
       await new Promise<void>((resolve, reject) => {
         server.close((err) => (err ? reject(err) : resolve()));
         // Force idle keep-alive sockets closed so close() settles promptly.
         const withClose = server as unknown as { closeAllConnections?: () => void };
         withClose.closeAllConnections?.();
       });
+      await server.queue.drain();
+      await server.queue.stop();
+      await (server as unknown as { store: { flushWrites(): Promise<void> } }).store.flushWrites();
       if (ownsDataDir) rmSync(dataDir, { recursive: true, force: true });
     },
   };
@@ -117,9 +129,42 @@ export function postJson(
   token: string,
   body: unknown,
 ): Promise<Response> {
+  return sendJsonRequest(base, route, token, 'POST', body);
+}
+
+/** Send a JSON body with an arbitrary method (POST/PATCH/DELETE/...). */
+export function sendJsonRequest(
+  base: string,
+  route: string,
+  token: string,
+  method: string,
+  body?: unknown,
+): Promise<Response> {
   return fetch(`${base}${route}`, {
-    method: 'POST',
+    method,
     headers: { ...bearer(token), 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
+}
+
+/**
+ * A mutable clock for driving the scheduler deterministically. `now()` reads the
+ * current value; `advance(ms)` moves it forward; `set(ms)` jumps to an instant.
+ * Pass `now` into `startTestServer` as the server's injected clock.
+ */
+export function mutableClock(start = Date.UTC(2026, 0, 1)): {
+  now: () => number;
+  advance: (ms: number) => void;
+  set: (ms: number) => void;
+} {
+  let current = start;
+  return {
+    now: () => current,
+    advance: (ms) => {
+      current += ms;
+    },
+    set: (ms) => {
+      current = ms;
+    },
+  };
 }
