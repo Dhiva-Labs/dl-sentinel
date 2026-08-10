@@ -1,13 +1,21 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { Finding, Report, ReportFormat, Severity } from '@dl-sentinel/core';
+import type { Finding, ReportFormat, Severity } from '@dl-sentinel/core';
 import { SEVERITY_ORDER } from '@dl-sentinel/core';
-import type { ScanEngine } from '@dl-sentinel/engine';
 import { BUILTIN_SCANNERS } from '@dl-sentinel/preset';
 import { renderReport } from '@dl-sentinel/reporting';
-import { HttpError, methodNotAllowed, notFound, readJsonBody, sendJson, sendText } from './http.js';
+import {
+  HttpError,
+  methodNotAllowed,
+  notFound,
+  readJsonBody,
+  scanNotReady,
+  sendJson,
+  sendText,
+} from './http.js';
+import type { ScanQueue } from './queue.js';
 import { resolveScanTarget } from './scan-path.js';
 import type { ReportStore } from './store.js';
-import type { ApiRule, ServerLogger, SentinelRuntime } from './types.js';
+import type { ApiRule, ScanRecord, ServerLogger, SentinelRuntime } from './types.js';
 
 export interface HandlerContext {
   req: IncomingMessage;
@@ -15,7 +23,7 @@ export interface HandlerContext {
   url: URL;
   runtime: SentinelRuntime;
   store: ReportStore;
-  engineFactory: () => ScanEngine;
+  queue: ScanQueue;
   logger: ServerLogger;
 }
 
@@ -91,30 +99,31 @@ function validateScanners(value: unknown): string[] | undefined {
   return ids;
 }
 
+/** A scan is servable by report endpoints only once it has completed. */
+function requireCompleted(
+  scan: ScanRecord,
+): asserts scan is ScanRecord & { report: NonNullable<ScanRecord['report']> } {
+  if (scan.status !== 'completed' || scan.report === undefined) {
+    throw scanNotReady(scan.status);
+  }
+}
+
 async function createScan(ctx: HandlerContext): Promise<void> {
   const body = await readJsonBody(ctx.req, ctx.runtime.maxBodyBytes);
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     throw new HttpError(400, 'validation_error', 'Request body must be a JSON object');
   }
   const record = body as Record<string, unknown>;
+  // Path isolation and scanner validation happen up front, before enqueueing, so
+  // an invalid request is rejected synchronously with 400 (never a queued job).
   const target = resolveScanTarget(ctx.runtime.scanRoot, record['path']);
   const scanners = validateScanners(record['scanners']);
 
-  let report: Report;
-  try {
-    const engine = ctx.engineFactory();
-    report = await engine.scan(scanners === undefined ? { target } : { target, scanners });
-  } catch (error) {
-    // The engine flags caller mistakes (unknown scanner, bad target) as
-    // UsageError; surface those as 400 rather than a 500.
-    if (error instanceof Error && error.name === 'UsageError') {
-      throw new HttpError(400, 'validation_error', error.message);
-    }
-    throw error;
-  }
-
-  const stored = ctx.store.create(report);
-  sendJson(ctx.res, 201, { id: stored.id, status: stored.status, stats: report.stats });
+  const created = ctx.store.create(
+    scanners === undefined ? { path: target } : { path: target, scanners },
+  );
+  ctx.queue.enqueue(created.id);
+  sendJson(ctx.res, 202, { id: created.id, status: created.status });
 }
 
 function listScans(ctx: HandlerContext): void {
@@ -124,16 +133,19 @@ function listScans(ctx: HandlerContext): void {
 function getScan(ctx: HandlerContext, id: string): void {
   const scan = ctx.store.get(id);
   if (scan === undefined) throw notFound('Scan not found');
-  sendJson(ctx.res, 200, scan.report);
+  // The full record: `report` present iff completed, `error` present iff failed.
+  sendJson(ctx.res, 200, scan);
 }
 
 function getScanFindings(ctx: HandlerContext, id: string): void {
   const scan = ctx.store.get(id);
   if (scan === undefined) throw notFound('Scan not found');
+  requireCompleted(scan);
   sendJson(ctx.res, 200, applyFindingFilters(scan.report.findings, ctx.url));
 }
 
 function getAllFindings(ctx: HandlerContext): void {
+  // store.allFindings() already aggregates completed scans only.
   sendJson(ctx.res, 200, applyFindingFilters(ctx.store.allFindings(), ctx.url));
 }
 
@@ -144,6 +156,7 @@ function getRules(ctx: HandlerContext): void {
 function getReport(ctx: HandlerContext, id: string): void {
   const scan = ctx.store.get(id);
   if (scan === undefined) throw notFound('Scan not found');
+  requireCompleted(scan);
   const format = parseReportFormat(ctx.url.searchParams.get('format'));
   const rendered = renderReport(scan.report, format);
   const contentType =
