@@ -1,0 +1,5 @@
+# I010 positive: privileged container.
+services:
+  app:
+    image: example/app:1.0.0
+    privileged: true

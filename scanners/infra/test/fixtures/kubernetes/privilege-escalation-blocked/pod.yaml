@@ -1,0 +1,18 @@
+# I024 negative, and fully clean otherwise: allowPrivilegeEscalation is
+# explicitly false, non-root, resource limits set, image pinned by tag.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: privilege-escalation-blocked-example
+spec:
+  containers:
+    - name: app
+      image: example/app:1.0.0
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+      resources:
+        limits:
+          cpu: '250m'
+          memory: '256Mi'

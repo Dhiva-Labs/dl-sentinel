@@ -1,0 +1,28 @@
+# I027 negative, and fully clean: one container pinned by digest, one by an
+# explicit version tag.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pinned-image-example
+spec:
+  containers:
+    - name: digest-pinned
+      image: example/app@sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+      resources:
+        limits:
+          cpu: '250m'
+          memory: '256Mi'
+    - name: tag-pinned
+      image: example/app:1.0.0
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+      resources:
+        limits:
+          cpu: '250m'
+          memory: '256Mi'

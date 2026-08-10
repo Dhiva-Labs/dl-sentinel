@@ -1,0 +1,10 @@
+# I011 negative: default bridge network mode.
+services:
+  app:
+    image: example/app:1.0.0
+    network_mode: bridge
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M

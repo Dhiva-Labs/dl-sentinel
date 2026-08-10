@@ -1,0 +1,10 @@
+# I023 positive: no runAsNonRoot and no runAsUser at either pod or
+# container level.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: run-as-root-example
+spec:
+  containers:
+    - name: app
+      image: example/app:1.0.0

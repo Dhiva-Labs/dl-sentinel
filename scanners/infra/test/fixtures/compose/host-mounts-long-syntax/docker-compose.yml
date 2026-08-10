@@ -1,0 +1,11 @@
+# I012 positive: long-syntax bind mounts (explicit `type: bind`).
+services:
+  app:
+    image: example/app:1.0.0
+    volumes:
+      - type: bind
+        source: /etc
+        target: /host-etc
+      - type: bind
+        source: /opt/data
+        target: /data

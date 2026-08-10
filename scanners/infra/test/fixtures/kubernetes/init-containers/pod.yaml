@@ -1,0 +1,24 @@
+# Isolated initContainers coverage: the init container is privileged, the
+# main container is fully clean, so any I020 finding here can only have
+# come from scanning initContainers.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: init-containers-example
+spec:
+  initContainers:
+    - name: init
+      image: example/app:1.0.0
+      securityContext:
+        privileged: true
+  containers:
+    - name: app
+      image: example/app:1.0.0
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+      resources:
+        limits:
+          cpu: '250m'
+          memory: '256Mi'

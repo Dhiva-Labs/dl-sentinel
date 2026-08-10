@@ -1,0 +1,10 @@
+# I010 negative: no privileged flag. Resource limits are set so this fixture
+# is quiet on I015 too, keeping it a clean negative control.
+services:
+  app:
+    image: example/app:1.0.0
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M

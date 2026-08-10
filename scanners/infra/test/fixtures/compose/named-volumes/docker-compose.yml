@@ -1,0 +1,19 @@
+# I012 negative: named volumes (short and long syntax) and a container-only
+# anonymous volume are not host mounts.
+services:
+  app:
+    image: example/app:1.0.0
+    volumes:
+      - appdata:/var/lib/app
+      - /var/lib/anonymous-container-path
+      - type: volume
+        source: cache
+        target: /cache
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+volumes:
+  appdata: {}
+  cache: {}

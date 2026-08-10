@@ -1,0 +1,26 @@
+# I028 negative, and fully clean: the credential-shaped var is sourced from
+# a Secret via valueFrom, and the other literal is an obvious placeholder.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: env-secret-ref-example
+spec:
+  containers:
+    - name: app
+      image: example/app:1.0.0
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+      resources:
+        limits:
+          cpu: '250m'
+          memory: '256Mi'
+      env:
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: db-password
+        - name: API_TOKEN
+          value: changeme

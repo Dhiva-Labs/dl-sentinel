@@ -1,0 +1,5 @@
+# I011 positive: host network mode.
+services:
+  app:
+    image: example/app:1.0.0
+    network_mode: host

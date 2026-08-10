@@ -1,0 +1,13 @@
+# I014 positive: a literal secret in both map-form and list-form
+# environment. Values are synthetic, obviously-fake fixture secrets.
+services:
+  api:
+    image: example/api:1.0.0
+    environment:
+      DB_PASSWORD: FAKESECRETEXAMPLE456
+      LOG_LEVEL: debug
+  worker:
+    image: example/worker:1.0.0
+    environment:
+      - API_TOKEN=FAKETOKENEXAMPLE789
+      - QUEUE_NAME=jobs

@@ -1,0 +1,6 @@
+top:
+  - a
+  -  b
+ nested: [unclosed, list
+  key: value
+	tab_indent: not allowed in yaml
