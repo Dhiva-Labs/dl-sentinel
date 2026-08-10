@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity 0.8.24;
 
 // Fixture contract with no known insecure patterns; a negative control for
 // DL Sentinel scanner tests. Never compiled or deployed.

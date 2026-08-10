@@ -1,23 +1,15 @@
 /**
  * Integration test against the shared, cross-scanner fixture at
- * tests/fixtures/clean-app/contracts/Safe.sol (READ-ONLY — owned by
- * feature/sentinel-testing). tests/fixtures/README.md documents clean-app as
- * a negative control scanners "must stay quiet on".
+ * tests/fixtures/clean-app/contracts/Safe.sol. tests/fixtures/README.md
+ * documents clean-app as a negative control that every scanner must stay
+ * quiet on, so it must produce zero findings here too.
  *
- * One documented exception here: Safe.sol's pragma is `^0.8.0` — a caret
- * (floating) pragma per SWC-103, which is the same construct
- * tests/fixtures/vulnerable-app/contracts/Vulnerable.sol uses. SC009 (low
- * severity, high confidence) is deliberately implemented to fire on ANY
- * floating pragma regardless of how recent its floor is — see
- * src/rules/sc009-pragma.ts and src/pragma.ts. That is correct, spec-
- * literal, real-tool-consistent behavior (Slither's solc-version check
- * flags the same pattern at its lowest severity tier); weakening it just to
- * force this shared fixture to zero findings would mean shipping a rule
- * that under-reports a real, if minor, hygiene issue. This is flagged in
- * the handover for the lead to reconcile (e.g. pin the shared fixture's
- * pragma exactly) rather than silently special-cased in the rule. It does
- * not affect the default policy (failOn: critical/high — SC009 is low) or
- * the CLI's exit-code-0-on-clean-app expectation.
+ * SC009 fires on any floating (`^`/`>=`) pragma per SWC-103, which is
+ * correct, spec-literal, real-tool-consistent behavior. To keep clean-app a
+ * true zero-findings control the fixture pins its pragma to an exact version
+ * (`pragma solidity 0.8.24;`) — the way a security-conscious contract should
+ * — rather than the rule being weakened. vulnerable-app keeps the floating
+ * pragma so SC009 still has a positive case there.
  */
 
 import { readFileSync } from 'node:fs';
@@ -37,20 +29,17 @@ function safeFileRef(): FileRef {
 }
 
 describe('clean-app: Safe.sol', () => {
-  it('produces no exploit-pattern findings (SC001-SC008, SC010-SC012)', async () => {
+  it('produces zero findings (a true negative control)', async () => {
     const context = contextFor([safeFileRef()], { rootDir: REPO_ROOT });
     const findings = await smartContractScanner.scan(context);
 
-    const nonPragmaFindings = findings.filter((f) => f.ruleId !== 'SC009');
-    expect(nonPragmaFindings).toEqual([]);
+    expect(findings).toEqual([]);
   });
 
-  it('the only finding is the low-severity floating-pragma hygiene note (SC009)', async () => {
+  it('specifically: the exact-pinned pragma does not trigger SC009', async () => {
     const context = contextFor([safeFileRef()], { rootDir: REPO_ROOT });
     const findings = await smartContractScanner.scan(context);
-
-    expect(findings).toHaveLength(1);
-    expect(findings[0]).toMatchObject({ ruleId: 'SC009', severity: 'low', line: 2 });
+    expect(findings.some((f) => f.ruleId === 'SC009')).toBe(false);
   });
 
   it('specifically: checks-effects-interactions withdraw() does not trigger SC001', async () => {
