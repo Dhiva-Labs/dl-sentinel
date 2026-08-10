@@ -1,0 +1,11 @@
+{
+  "name": "npm-fixture",
+  "version": "1.0.0",
+  "dependencies": {
+    "dl-fixture-vulnpkg": "^1.2.0",
+    "left-pad": "1.3.0"
+  },
+  "devDependencies": {
+    "dl-fixture-devpkg": ">=2.0.0"
+  }
+}

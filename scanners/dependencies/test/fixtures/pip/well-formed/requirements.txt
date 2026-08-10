@@ -1,0 +1,8 @@
+# comment line, should be ignored
+dl-fixture-vulnpkg==1.2.3
+dl-fixture-rangepkg>=2.0.0
+unpinned-package
+dl-fixture-excluded~=1.0.0
+requests==2.6.0  # inline comment
+django>=2.0,<3.0
+-e git+https://example.invalid/foo/bar.git#egg=bar

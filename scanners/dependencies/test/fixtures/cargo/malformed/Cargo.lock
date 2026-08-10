@@ -1,0 +1,9 @@
+version = 3
+
+[[package]]
+name = "broken-fixture"
+this-is-garbage-not-a-field
+
+[[package]]
+name = "dl-fixture-goodpkg"
+version = "1.0.0"

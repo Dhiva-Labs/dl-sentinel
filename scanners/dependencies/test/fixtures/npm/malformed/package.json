@@ -1,0 +1,6 @@
+{
+  "name": "broken-fixture",
+  "dependencies": {
+    "dl-fixture-vulnpkg": "1.0.0",
+  }
+}
