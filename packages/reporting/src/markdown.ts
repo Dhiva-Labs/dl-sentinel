@@ -19,6 +19,16 @@ export function renderMarkdown(report: Report): string {
   lines.push(`| Medium | ${report.stats.medium} |`);
   lines.push(`| Low | ${report.stats.low} |`);
   lines.push(`| Info | ${report.stats.info} |`);
+  if (report.suppressed !== undefined) {
+    lines.push('');
+    lines.push(`- **Suppressed:** ${report.suppressed}`);
+  }
+  if (report.baseline !== undefined) {
+    lines.push('');
+    lines.push(
+      `- **New:** ${report.baseline.newFindings} · **Baselined:** ${report.baseline.baselined}`,
+    );
+  }
   lines.push('');
   lines.push('## Findings');
   lines.push('');
