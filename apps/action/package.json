@@ -1,0 +1,28 @@
+{
+  "name": "@dl-sentinel/action",
+  "version": "0.1.0",
+  "description": "DL Sentinel GitHub Action: scan pull requests and report findings",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "sentinel-action": "./dist/main.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "action.yml"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@dl-sentinel/core": "*",
+    "@dl-sentinel/engine": "*",
+    "@dl-sentinel/preset": "*",
+    "@dl-sentinel/reporting": "*"
+  }
+}

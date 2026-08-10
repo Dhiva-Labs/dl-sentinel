@@ -21,6 +21,7 @@ export default defineConfig({
       '@dl-sentinel/cli': src('./apps/cli/src/index.ts'),
       '@dl-sentinel/api-server': src('./apps/api/src/index.ts'),
       '@dl-sentinel/web': src('./apps/web/src/index.ts'),
+      '@dl-sentinel/action': src('./apps/action/src/index.ts'),
     },
   },
   test: {

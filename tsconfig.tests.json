@@ -20,7 +20,8 @@
       "@dl-sentinel/scanner-smart-contract": ["scanners/smart-contract/src/index.ts"],
       "@dl-sentinel/cli": ["apps/cli/src/index.ts"],
       "@dl-sentinel/api-server": ["apps/api/src/index.ts"],
-      "@dl-sentinel/web": ["apps/web/src/index.ts"]
+      "@dl-sentinel/web": ["apps/web/src/index.ts"],
+      "@dl-sentinel/action": ["apps/action/src/index.ts"]
     }
   },
   "include": [

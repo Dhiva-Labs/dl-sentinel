@@ -13,6 +13,7 @@
     { "path": "scanners/smart-contract" },
     { "path": "apps/cli" },
     { "path": "apps/api" },
-    { "path": "apps/web" }
+    { "path": "apps/web" },
+    { "path": "apps/action" }
   ]
 }
