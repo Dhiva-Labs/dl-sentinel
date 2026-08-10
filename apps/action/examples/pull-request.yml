@@ -1,0 +1,74 @@
+# Example workflow: scan pull requests with DL Sentinel and report only the
+# findings the PR introduces. Copy this into your repository as
+# .github/workflows/dl-sentinel.yml and adjust as needed.
+#
+# Two things make the "only new findings" behavior work:
+#   1. The PR head is checked out normally (actions/checkout).
+#   2. The base branch is checked out into a sibling directory and passed as
+#      `base_path`; DL Sentinel scans it to build a baseline and reports only
+#      findings that are absent from the base. (The action excludes the base
+#      directory from the head scan automatically, so it is not double-counted.)
+#
+# Prefer a committed baseline instead? Drop the second checkout and set
+#   baseline: .sentinel-baseline.json
+# (generate it once with `sentinel baseline . --output .sentinel-baseline.json`).
+
+name: DL Sentinel
+
+on:
+  pull_request:
+
+# The sticky PR comment needs pull-requests: write. The SARIF upload needs
+# security-events: write. contents: read is enough to scan the checkout.
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
+  sentinel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the PR head
+        uses: actions/checkout@v4
+
+      - name: Check out the base branch (for base-diff mode)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: .sentinel-base
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run DL Sentinel
+        id: sentinel
+        # Pin to a released tag of the published action. The action ships its
+        # built dist/, so no build step is needed in your workflow.
+        uses: Dhiva-Labs/dl-sentinel/apps/action@v0.1.0
+        with:
+          path: .
+          base_path: .sentinel-base
+          fail_on: critical,high
+          # token defaults to ${{ github.token }} — no need to set it.
+
+      # Optional: upload the SARIF so new findings show up in the Security tab
+      # and inline on the PR diff. Code scanning upload requires a public repo
+      # OR GitHub Advanced Security on a private repo. The sticky PR comment
+      # above works on every repository regardless.
+      - name: Upload SARIF to code scanning
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: sentinel-results.sarif
+
+      # Read the action's outputs if you want to gate later steps yourself.
+      - name: Report
+        if: always()
+        run: |
+          echo "total=${{ steps.sentinel.outputs.findings_total }}"
+          echo "new=${{ steps.sentinel.outputs.findings_new }}"
+          echo "failed=${{ steps.sentinel.outputs.failed }}"
