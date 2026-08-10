@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>DL Sentinel</title>
+    <meta
+      name="description"
+      content="DL Sentinel security dashboard: scans, findings, rules, and reports."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#view">Skip to main content</a>
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="brand">
+          <svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M12 2 4 5.2v5.8c0 5.2 3.4 9.6 8 11 4.6-1.4 8-5.8 8-11V5.2Z"></path>
+            <path
+              class="brand-icon__check"
+              d="m8.7 12.2 2.4 2.4 4.6-4.9"
+              fill="none"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            ></path>
+          </svg>
+          <span class="brand-name">DL Sentinel</span>
+        </div>
+        <nav class="primary-nav" aria-label="Primary">
+          <ul>
+            <li><a href="#/dashboard" data-route="dashboard">Dashboard</a></li>
+            <li><a href="#/scans" data-route="scans">Scans</a></li>
+            <li><a href="#/findings" data-route="findings">Findings</a></li>
+            <li><a href="#/rules" data-route="rules">Rules</a></li>
+            <li><a href="#/reports" data-route="reports">Reports</a></li>
+          </ul>
+        </nav>
+        <div class="header-actions">
+          <span id="connection-indicator" class="connection-indicator"></span>
+          <button
+            id="theme-toggle"
+            type="button"
+            class="icon-button"
+            aria-label="Toggle color theme"
+            aria-pressed="false"
+          >
+            🌙
+          </button>
+          <a href="#/settings" data-route="settings" class="icon-button" aria-label="Settings">
+            ⚙
+          </a>
+        </div>
+      </header>
+
+      <div id="route-announcer" class="visually-hidden" role="status" aria-live="polite"></div>
+
+      <main id="view" tabindex="-1"></main>
+
+      <footer class="app-footer">
+        <p>DL Sentinel dashboard — talks only to the API configured in Settings.</p>
+      </footer>
+    </div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
