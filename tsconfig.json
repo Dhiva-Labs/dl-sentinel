@@ -1,0 +1,17 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/engine" },
+    { "path": "packages/reporting" },
+    { "path": "scanners/secrets" },
+    { "path": "scanners/dependencies" },
+    { "path": "scanners/source" },
+    { "path": "scanners/infra" },
+    { "path": "scanners/api" },
+    { "path": "scanners/smart-contract" },
+    { "path": "apps/cli" },
+    { "path": "apps/api" },
+    { "path": "apps/web" }
+  ]
+}

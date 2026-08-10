@@ -1,0 +1,22 @@
+{
+  "name": "@dl-sentinel/engine",
+  "version": "0.1.0",
+  "description": "DL Sentinel scanner orchestration engine: discovery, config, execution, aggregation",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@dl-sentinel/core": "*",
+    "yaml": "^2.5.0"
+  }
+}

@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+coverage/
+
+# Runtime data (API server storage, local scan output)
+.dl-sentinel/
+*.log
+
+# Local environment / secrets — never commit
+.env
+.env.*
+
+# Editor / OS noise
+.DS_Store
+.idea/
+.vscode/
+
+# Local agent/tooling state — never commit
+.claude/
+CLAUDE.md
