@@ -1,8 +1,9 @@
 # Scanner Interface
 
 Every scanner is a package under `scanners/` exporting one `ScannerPlugin` object from its
-`src/index.ts`. The engine discovers nothing by magic — apps import scanner packages and
-register them explicitly.
+`src/index.ts`. The plugin object is the package's **default export** (a named export of
+the same object is welcome for tests); apps import each scanner package's default export
+and register it explicitly — the engine discovers nothing by magic.
 
 ## The contract
 
