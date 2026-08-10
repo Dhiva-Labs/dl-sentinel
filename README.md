@@ -23,9 +23,8 @@ top of the same local scan.
 
 Reports render as terminal output, JSON, Markdown, or SARIF 2.1.0.
 
-Each scanner package currently contains only an interface stub in this codebase — see
-[docs/scanners.md](docs/scanners.md) for what's fixed by contract today versus what's still in
-progress.
+All six scanners ship 83 rules in total — see [docs/scanners.md](docs/scanners.md) and
+[docs/rules.md](docs/rules.md).
 
 ## Quick start
 
@@ -39,7 +38,8 @@ npm run build
 npm test
 ```
 
-Once the CLI is implemented (see [docs/cli.md](docs/cli.md); `apps/cli` is currently a stub):
+Run the CLI (see [docs/cli.md](docs/cli.md)) via `node apps/cli/dist/main.js <command>` after
+building, or as `sentinel` once installed:
 
 ```bash
 sentinel scan .                       # scan a directory with defaults
@@ -116,6 +116,7 @@ Licensed under the MIT License. See [LICENSE](LICENSE).
 
 ## Project status
 
-Early development. `@dl-sentinel/core` and `@dl-sentinel/reporting` are implemented and tested;
-the engine, all six scanners, the CLI, the API server, and the dashboard are under active
-development and currently contain only interface stubs.
+Initial release (0.1.0). The core model, scan engine, all six scanners, reporting
+(terminal/JSON/Markdown/SARIF), the `sentinel` CLI, the self-hosted HTTP API server, and the
+web dashboard are implemented and covered by the test suite. See the per-scanner and
+per-component limitations noted throughout [docs/](docs/).

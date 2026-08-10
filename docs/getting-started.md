@@ -30,11 +30,8 @@ See [Development guide](development.md) for the full command list and coding con
 
 ## Your first scan
 
-> Status: implementation in progress. `apps/cli` currently contains only an interface stub in
-> this codebase (`export {}`). The walkthrough below documents the command contract fixed in
-> [Architecture](architecture.md) and [CLI reference](cli.md) for when the CLI lands.
-
-Once implemented, scanning a project is a single command:
+After `npm run build`, scanning a project is a single command (`node apps/cli/dist/main.js`, or
+`sentinel` once installed):
 
 ```bash
 sentinel scan .
@@ -120,8 +117,8 @@ A few things worth noting when reading findings:
   match on the same input always produces the same id, which is what the engine uses to
   de-duplicate findings across scanners and runs.
 
-The JSON, Markdown, and SARIF renderers for these reports (`@dl-sentinel/reporting`) are already
-implemented; only the code that wires a CLI or API run into them is still in progress.
+The terminal, JSON, Markdown, and SARIF renderers (`@dl-sentinel/reporting`) are selected with
+`--format`, both when scanning and when re-rendering a saved JSON report via `sentinel report`.
 
 ## Exit codes
 

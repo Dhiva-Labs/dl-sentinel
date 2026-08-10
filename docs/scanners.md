@@ -4,22 +4,18 @@ DL Sentinel ships six scanner plugins, each implementing the `ScannerPlugin` con
 in [Scanner interface](scanner-interface.md) and registered explicitly by the apps that use them
 (the CLI and the API server — the engine does not discover scanners by magic).
 
-> Status: implementation in progress. Every scanner package listed below currently contains only
-> an interface stub (`export {}`) in `scanners/<id>/src/index.ts`. Purpose, rule-id prefix, and
-> category are fixed by [Architecture](architecture.md) and `packages/core/src/types.ts`; file
-> globs and scanner-specific settings beyond `enabled` are only fixed today for secrets and
-> dependencies, and are noted as such below.
+All six scanners are implemented and tested; 83 rules total. The rule count per scanner is
+noted below; run `sentinel rules` for the live catalog.
 
 ## Secrets (`secrets`)
 
 - **Package:** `scanners/secrets` (`@dl-sentinel/scanner-secrets`)
-- **Rule id prefix:** `S`
+- **Rule id prefix:** `S` — 22 rules.
 - **Category:** `secrets`
 - **Purpose:** finds credential-like values — API keys, tokens, passwords — committed to tracked
   files.
-- **Supported files:** the skeleton in [Scanner interface](scanner-interface.md#skeleton)
-  declares `supportedFiles: []`, meaning the scanner is intended to receive every discovered file
-  rather than a restricted set of extensions.
+- **Supported files:** `supportedFiles: []`, meaning the scanner receives every discovered text
+  file rather than a restricted set of extensions.
 - **Config (`scanners.secrets`):**
   - `enabled` (boolean) — whether the scanner runs at all.
   - `allowlist` (string[]) — exact strings or rule ids to suppress.
@@ -31,28 +27,32 @@ in [Scanner interface](scanner-interface.md) and registered explicitly by the ap
 ## Dependencies (`dependencies`)
 
 - **Package:** `scanners/dependencies` (`@dl-sentinel/scanner-dependencies`)
-- **Rule id prefix:** `D`
+- **Rule id prefix:** `D` — 3 rules (`D001` known-vulnerable dependency, `D002` check skipped,
+  `D003` manifest without a lockfile).
 - **Category:** `dependencies`
-- **Purpose:** flags dependencies with known vulnerabilities.
+- **Purpose:** flags dependencies with known vulnerabilities across npm, pip, Go, and Cargo.
 - **Data source (`scanners.dependencies.dataSource`):** `none` | `file` | `osv`.
   - `none` — the default. No advisory data is consulted; the scanner reports "not checked"
-    rather than fabricating a result.
+    (`D002`) rather than fabricating a result.
   - `file` — reads a locally supplied advisory file at `advisoryDbPath`.
   - `osv` — queries the OSV database over the network. This is the only network-dependent data
     source in the system and is off by default; it requires explicit opt-in. See
     [Security](security.md#network-behavior).
-- **Supported files:** not finalized in the contract docs. Dependency manifests and lockfiles are
-  the expected input; the exact globs will be declared by the scanner's `supportedFiles` array
-  when implemented.
+- **Supported files:** `package.json`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`,
+  `requirements.txt`, `requirements-*.txt`, `go.mod`, `Cargo.toml`, `Cargo.lock`.
 
 ## Source code (`source`)
 
 - **Package:** `scanners/source` (`@dl-sentinel/scanner-source`)
 - **Rule id prefix:** `C`
 - **Category:** `source`
+- **Rule id prefix:** `C` — 10 rules (command injection, `eval`/dynamic code, SQL from strings,
+  insecure deserialization, path traversal, weak password hashing, insecure randomness, disabled
+  TLS verification, permissive CORS, world-writable modes).
 - **Purpose:** detects insecure coding patterns in application source.
-- **Supported files / config:** not finalized beyond the `enabled` flag common to every scanner.
-  The contract docs do not yet specify file globs or dedicated settings for this scanner.
+- **Supported files:** `*.js`, `*.jsx`, `*.ts`, `*.tsx`, `*.mjs`, `*.cjs`, `*.py`, `*.go`,
+  `*.rb`, `*.php`, `*.java`. Rules are deterministic line heuristics tuned for precision over
+  recall; per-language coverage varies by rule.
 
 ## Infrastructure (`infra`)
 
@@ -62,33 +62,47 @@ in [Scanner interface](scanner-interface.md) and registered explicitly by the ap
   than there being a single category for the scanner.
 - **Purpose:** checks container and infrastructure configuration: Dockerfiles, Docker Compose
   files, Kubernetes manifests, and basic Terraform.
+- **Rule id prefix:** `I` — 26 rules (Dockerfile `I001`–`I006`, Compose `I010`–`I016`,
+  Kubernetes `I020`–`I028`, Terraform `I030`–`I033`).
 - The Docker scanner and the infrastructure scanner described in the original plan are folded
   into this one package because they share parsing and fixtures (see
-  [Architecture](architecture.md#monorepo-layout)). Parsing YAML-based manifests is expected to
-  use the `yaml` package — the project's only approved runtime dependency alongside engine config
-  parsing.
-- **Supported files / config:** not finalized beyond `enabled`.
+  [Architecture](architecture.md#monorepo-layout)). YAML manifests are parsed with the `yaml`
+  package — the project's only approved runtime dependency alongside engine config parsing.
+- **Supported files:** `Dockerfile`, `Dockerfile.*`, `*.dockerfile`, `docker-compose.yml` /
+  `.yaml` / `docker-compose.*.yml`, `compose.yml` / `.yaml`, `*.yml`, `*.yaml`, `*.tf`. Generic
+  YAML files are inspected and skipped unless they are Kubernetes manifests or Compose files.
+  The Terraform parser is a deliberately lightweight HCL reader (no expression evaluation,
+  heredocs, or `dynamic` block expansion).
 
 ## API (`api`)
 
 - **Package:** `scanners/api` (`@dl-sentinel/scanner-api`)
 - **Rule id prefix:** `A`
 - **Category:** `api`
-- **Purpose:** analyzes API definitions — OpenAPI/Swagger documents and Postman collections —
-  for security issues.
-- This is the scanner the contract specifically calls out as required to use `qualifier`
-  (`confirmed` | `likely` | `potential`) to distinguish assertion strength, since API analysis
-  often can't confirm exploitability from static definitions alone. See
-  [Rules](rules.md#qualifier).
-- **Supported files / config:** not finalized beyond `enabled`.
+- **Rule id prefix:** `A` — 10 rules (`A001`–`A010`: missing/weak auth, API key in query,
+  non-HTTPS, Basic auth, unauthenticated state-changing operations, sensitive response fields,
+  missing rate-limit signals, deprecated auth flows, unconstrained inputs, Postman secrets).
+- **Purpose:** analyzes API definitions — OpenAPI 3.x / Swagger 2.0 documents and Postman
+  collections — for security issues.
+- Every finding sets `qualifier` (`confirmed` | `likely` | `potential`) to distinguish assertion
+  strength, since API analysis often can't confirm exploitability from static definitions alone.
+  See [Rules](rules.md#qualifier).
+- **Supported files:** `openapi.{yml,yaml,json}`, `swagger.{yml,yaml,json}`,
+  `*.openapi.{yml,yaml,json}`, `api-spec*.{yml,yaml,json}`, `*postman_collection*.json`, and
+  generic `*.{yml,yaml,json}` files that self-identify as API definitions.
 
 ## Smart contract (`smart-contract`)
 
 - **Package:** `scanners/smart-contract` (`@dl-sentinel/scanner-smart-contract`)
 - **Rule id prefix:** `SC`
 - **Category:** `smart-contract`
-- **Purpose:** analyzes Solidity/EVM source for risk patterns.
-- **Supported files / config:** not finalized beyond `enabled`.
+- **Rule id prefix:** `SC` — 12 rules (reentrancy, `tx.origin` auth, unchecked low-level calls,
+  unsafe `delegatecall`, unprotected `selfdestruct`/initializer/mint, pre-0.8 arithmetic,
+  floating/outdated pragma, weak randomness, deprecated constructs, unguarded owner setters).
+- **Purpose:** analyzes Solidity/EVM source for risk patterns using a line-based parser (comment
+  and string stripping with preserved line numbers). Findings are heuristics; confidence is set
+  accordingly and never claims a contract is secure because no rule fired.
+- **Supported files:** `*.sol`.
 
 ## See also
 

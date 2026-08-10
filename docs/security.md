@@ -4,11 +4,11 @@ This page describes the security model *of DL Sentinel itself* — the guarantee
 about how it treats the code and secrets it scans. For rule-level detail behind specific findings,
 see [Scanners](scanners.md) and [Rules](rules.md).
 
-> Status: the redaction and fingerprinting utilities described below (`redactEvidence`,
-> `createFinding`) are implemented today in `@dl-sentinel/core`. The engine and scanners that are
-> required to use them, and the API server described in the storage and network sections, are
-> still in progress. The guarantees themselves are binding design principles fixed in
-> [Architecture](architecture.md#security-posture-binding), not aspirational goals.
+These guarantees are binding design principles fixed in
+[Architecture](architecture.md#security-posture-binding). The redaction and fingerprinting
+utilities (`redactEvidence`, `createFinding`) live in `@dl-sentinel/core`; the engine, every
+scanner, and the API server are implemented against them and covered by tests, including a
+regression suite that asserts planted fixture secrets never appear in serialized findings.
 
 ## Read-only scanning
 

@@ -61,13 +61,11 @@ qualifier is a plain static detection.
 
 ## Listing rules (`sentinel rules`)
 
-`sentinel rules` is expected to aggregate the statically-declared `rules: RuleMeta[]` array from
-every registered `ScannerPlugin` and print them. Each `RuleMeta` carries `id`, `title`,
-`severity`, `defaultConfidence`, `category`, `description`, `recommendation`, and optional
-`references`.
-
-> Status: implementation in progress. `apps/cli` and every `scanners/*` package are stubs today,
-> so there is nothing yet for this command to register or list. See [CLI reference](cli.md).
+`sentinel rules` aggregates the statically-declared `rules: RuleMeta[]` array from every
+registered `ScannerPlugin` and prints them (83 rules across the six built-in scanners today).
+Each `RuleMeta` carries `id`, `title`, `severity`, `defaultConfidence`, `category`,
+`description`, `recommendation`, and optional `references`. Use `--format json` for a
+machine-readable list and `--scanners <ids>` to filter. See [CLI reference](cli.md).
 
 ## Authoring a new rule
 

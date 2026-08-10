@@ -5,9 +5,9 @@ Every key is optional: a missing file falls back entirely to built-in defaults, 
 within a present file fall back to the same defaults. An invalid file causes config loading to
 throw rather than silently ignoring the problem. Unknown keys produce warnings, not errors.
 
-Defaults come from `defaultConfig()` in `@dl-sentinel/core` (`packages/core/src/types.ts`), which
-is implemented today even though the engine that loads and merges it (`loadConfig()` in
-`@dl-sentinel/engine`) is still in progress.
+Defaults come from `defaultConfig()` in `@dl-sentinel/core` (`packages/core/src/types.ts`); the
+engine's `loadConfig()` (`@dl-sentinel/engine`) discovers the file, deep-merges it over those
+defaults, and warns on unknown keys.
 
 ## Full reference
 
@@ -97,9 +97,8 @@ Beyond `enabled`, only two scanners have settings fixed by the contract today:
 | `dataSource` | `'none' \| 'file' \| 'osv'` | Where vulnerability data comes from. `none` (default) means "not checked", reported honestly rather than fabricated. `file` reads a local advisory file. `osv` queries the OSV database over the network and is off by default. |
 | `advisoryDbPath` | `string \| null` | Path to the local advisory file when `dataSource: file`. |
 
-Settings for `source`, `infra`, `api`, and `smart-contract` are not yet fixed by the contract
-docs; each scanner package will declare its own settings shape as it's implemented. See
-[Scanners](scanners.md).
+The `source`, `infra`, `api`, and `smart-contract` scanners honor the common `enabled` flag and
+otherwise take no required settings today. See [Scanners](scanners.md) for their supported files.
 
 ## `policy`
 
@@ -112,10 +111,6 @@ Policy is evaluated by `evaluatePolicy(stats, policy)` in `@dl-sentinel/core`, w
 that actually had findings. See [CLI reference: exit codes](cli.md#exit-codes).
 
 ## Precedence
-
-> Status: implementation in progress. `packages/engine` and `apps/cli` are not yet implemented,
-> so this order is the intended behavior fixed by the contract rather than something observable
-> in this codebase today.
 
 Highest to lowest:
 

@@ -1,15 +1,11 @@
 # API reference
 
-> Status: implementation in progress. `apps/api/src/index.ts` currently contains only an
-> interface stub (`export {}`) in this codebase. This page documents the endpoint contract fixed
-> in [Architecture](architecture.md); request/response shapes beyond what the contract specifies
-> are described in terms of the `Finding` and `Report` types in `packages/core/src/types.ts`
-> rather than invented.
-
 DL Sentinel ships a self-hosted HTTP API (`apps/api`, package `@dl-sentinel/api-server`) built on
-Node's `http` module, without a framework. It serves the dashboard (`@dl-sentinel/web`) at `/`
-and exposes the endpoints below under `/api`. Persisted data — scans, findings, the audit log —
-lives under the server's local data directory, `.dl-sentinel/`. See
+Node's `http` module, without a framework. Build the workspace and start it with
+`node apps/api/dist/main.js` (or the `sentinel-api` bin). It listens on `PORT` (default `8752`),
+serves the dashboard (`@dl-sentinel/web`) at `/`, and exposes the endpoints below under `/api`.
+Persisted data — scans, findings, the audit log — lives under the server's local data directory
+(`SENTINEL_DATA_DIR`, default `.dl-sentinel/`). See
 [Security](security.md#what-the-api-server-stores-and-where).
 
 ## Authentication
@@ -46,30 +42,37 @@ the server at arbitrary filesystem locations.
 
 ## Response shapes
 
-Beyond the `POST /api/scans` request body shown above, the contract does not fix full response
-bodies field-by-field, but the data itself is drawn from real, implemented types:
-
-- Endpoints returning findings return values shaped like `Finding` in
-  [Finding schema](finding-schema.md) (see the worked example there).
-- `GET /api/reports/:id` renders a `Report` (see `packages/core/src/types.ts`) through the same
-  `renderReport(report, format)` used by the CLI — implemented today in `@dl-sentinel/reporting`,
-  independent of whether the HTTP layer that calls it exists yet.
+- `POST /api/scans` returns `201` with `{ id, status, stats }`, where `stats` is the
+  `SeverityStats` object (`critical`, `high`, `medium`, `low`, `info`).
+- `GET /api/scans` returns an array of scan summaries: `{ id, project, startedAt, stats,
+  findingCount }`.
+- `GET /api/scans/:id` returns the full `Report` (see `packages/core/src/types.ts`); `404` if
+  unknown.
+- `GET /api/scans/:id/findings` and `GET /api/findings` return arrays of `Finding` objects (see
+  [Finding schema](finding-schema.md)); both accept `?severity=` and `?scanner=` filters.
+- `GET /api/rules` returns an array of rule objects (`RuleMeta` fields plus the owning
+  `scanner` id) — the same data `sentinel rules` prints.
+- `GET /api/reports/:id?format=json|markdown|sarif` renders a stored `Report` through the same
+  `renderReport(report, format)` the CLI uses; default `json`; `404` if unknown.
 
 ## Errors
 
-Structured JSON, not a bare string or an HTTP status alone:
+Structured JSON, never a bare string or an HTTP status alone:
 
 ```json
 { "error": { "code": "...", "message": "..." } }
 ```
 
-The envelope shape (`error.code`, `error.message`) is fixed by the contract; the specific set of
-`code` values is not, and isn't guessed at here.
+Current `code` values: `validation_error` (400), `unauthorized` (401), `not_found` (404),
+`method_not_allowed` (405), `payload_too_large` (413), `rate_limited` (429), and
+`internal_error` (500). Server errors never include a stack trace in the response body.
 
 ## Rate limiting
 
-The server applies in-memory rate limiting to protect a self-hosted deployment from abuse.
-Specific thresholds are an implementation detail, not fixed by the contract.
+In-memory, fixed-window rate limiting protects a self-hosted deployment from abuse. Defaults are
+60 requests per 60 seconds, configurable via `SENTINEL_RATE_LIMIT_MAX` and
+`SENTINEL_RATE_LIMIT_WINDOW_MS`; exceeding the window returns `429` with a `Retry-After` header.
+Request bodies are capped at `SENTINEL_MAX_BODY_BYTES` (default 1 MiB) → `413`.
 
 ## Audit log
 
