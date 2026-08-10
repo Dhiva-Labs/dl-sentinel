@@ -14,6 +14,7 @@ import type {
 import {
   TOOL_NAME,
   TOOL_VERSION,
+  applySuppressions,
   computeStats,
   createMatcher,
   dedupeFindings,
@@ -142,7 +143,11 @@ async function runScan(plugins: readonly ScannerPlugin[], options: ScanOptions):
       emit: (event) => emitter.emit(event),
     });
 
-    const findings = sortFindings(dedupeFindings(outcomes.flatMap((outcome) => outcome.findings)));
+    const deduped = sortFindings(dedupeFindings(outcomes.flatMap((outcome) => outcome.findings)));
+    // Suppression is the last finding-model step: drop reviewed findings so the
+    // report, stats and events all reflect only the active ones.
+    const suppressRules = config.suppress ?? [];
+    const { active, suppressed } = applySuppressions(deduped, suppressRules, new Date());
     const errors = outcomes.flatMap((outcome) => (outcome.error ? [outcome.error] : []));
     const finishedAtMs = Date.now();
     const report: Report = {
@@ -153,14 +158,17 @@ async function runScan(plugins: readonly ScannerPlugin[], options: ScanOptions):
       finishedAt: new Date(finishedAtMs).toISOString(),
       durationMs: finishedAtMs - startedAtMs,
       scannersRun: selected.map((plugin) => plugin.id),
-      stats: computeStats(findings),
-      findings,
+      stats: computeStats(active),
+      findings: active,
       errors,
+      // Only surface `suppressed` when suppression was actually configured, so
+      // reports and consumers that predate this feature are unaffected.
+      ...(suppressRules.length > 0 ? { suppressed: suppressed.length } : {}),
     };
 
     emitter.emit({
       type: 'scan:complete',
-      findings: findings.length,
+      findings: active.length,
       durationMs: report.durationMs,
     });
     return report;

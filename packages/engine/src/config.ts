@@ -7,6 +7,7 @@ import type {
   ScannerSettings,
   SentinelConfig,
   Severity,
+  SuppressionRule,
 } from '@dl-sentinel/core';
 import { SEVERITY_ORDER, defaultConfig } from '@dl-sentinel/core';
 import { errorMessage } from './errors.js';
@@ -21,6 +22,17 @@ const TOP_LEVEL_KEYS: readonly string[] = [
   'maxFileSizeBytes',
   'scanners',
   'policy',
+  'suppress',
+];
+
+/** The optional string fields a suppression rule may carry. */
+const SUPPRESS_FIELDS: readonly (keyof SuppressionRule)[] = [
+  'rule',
+  'scanner',
+  'path',
+  'id',
+  'reason',
+  'expires',
 ];
 
 const VALID_SEVERITIES = new Set<string>(SEVERITY_ORDER);
@@ -146,7 +158,56 @@ function mergeConfig(
       raw.policy === undefined
         ? { failOn: [...defaults.policy.failOn] }
         : mergePolicy(defaults.policy, raw.policy, source, logger),
+    suppress:
+      raw.suppress === undefined
+        ? [...(defaults.suppress ?? [])]
+        : mergeSuppress(raw.suppress, source, logger),
   };
+}
+
+/**
+ * Parse the `suppress` section into a list of {@link SuppressionRule}. Unlike
+ * the other sections this is lenient: a malformed value or entry is warned
+ * about and skipped rather than thrown, so a single typo in one rule cannot
+ * abort an entire scan. Each rule keeps only its known string fields; a rule
+ * that ends up with no matcher is harmless (core's `applySuppressions` treats a
+ * matcher-less rule as matching nothing).
+ */
+function mergeSuppress(raw: unknown, source: string, logger: ScanLogger): SuppressionRule[] {
+  if (!Array.isArray(raw)) {
+    logger.warn(`${source}: "suppress" must be a list of rules (ignored)`);
+    return [];
+  }
+  const rules: SuppressionRule[] = [];
+  raw.forEach((entry, index) => {
+    const rule = readSuppressRule(entry, index, source, logger);
+    if (rule !== undefined) rules.push(rule);
+  });
+  return rules;
+}
+
+/** Validate one suppression entry; `undefined` means "malformed, skip it". */
+function readSuppressRule(
+  entry: unknown,
+  index: number,
+  source: string,
+  logger: ScanLogger,
+): SuppressionRule | undefined {
+  if (!isPlainObject(entry)) {
+    logger.warn(`${source}: "suppress[${index}]" must be a mapping (ignored)`);
+    return undefined;
+  }
+  const out: Record<string, string> = {};
+  for (const field of SUPPRESS_FIELDS) {
+    const value = entry[field];
+    if (value === undefined) continue;
+    if (typeof value !== 'string') {
+      logger.warn(`${source}: "suppress[${index}].${field}" must be a string (ignored)`);
+      return undefined;
+    }
+    out[field] = value;
+  }
+  return out as SuppressionRule;
 }
 
 function mergeScanners(
