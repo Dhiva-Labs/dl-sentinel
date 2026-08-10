@@ -12,6 +12,7 @@ export function topLevelHelp(): string {
     '',
     'Commands:',
     '  scan [path]        Scan a directory (default: .) and report findings',
+    '  baseline [path]    Scan and write a baseline of the current findings',
     '  rules              List every rule from the built-in scanners',
     '  report <file>      Re-render a saved JSON report in another format',
     '  version            Print the tool name and version',
@@ -36,11 +37,35 @@ export function scanHelp(): string {
     '  --output <file>      Write the report to a file instead of stdout',
     '  --scanners <ids>     Comma-separated subset of scanner ids to run',
     '  --fail-on <sevs>     Comma-separated severities that fail the policy',
+    '  --baseline <file>    Report only findings absent from this baseline',
+    '  --write-baseline <file>',
+    '                       Write a baseline of this scan after reporting',
     '  --quiet              Suppress progress output on stderr',
     '  --no-color           Disable ANSI color',
     '  --help, -h           Show this help',
     '',
+    'With --baseline, the exit code reflects only the NEW findings.',
+    '',
     'Exit codes: 0 ok · 1 policy violated · 2 error · 64 usage error',
+  ].join('\n');
+}
+
+export function baselineHelp(): string {
+  return [
+    'Usage: sentinel baseline [path] [options]',
+    '',
+    'Scan a directory (default: .) and write a baseline of the current findings,',
+    'so a later `sentinel scan --baseline <file>` reports only new findings.',
+    '',
+    'Options:',
+    '  --config <file>      Use an explicit sentinel.yml instead of discovering one',
+    '  --scanners <ids>     Comma-separated subset of scanner ids to run',
+    '  --output <file>      Baseline file to write (default: .sentinel-baseline.json)',
+    '  --quiet              Suppress the summary line on stderr',
+    '  --no-color           Disable ANSI color',
+    '  --help, -h           Show this help',
+    '',
+    'Exit codes: 0 ok · 2 write error · 64 usage error',
   ].join('\n');
 }
 
