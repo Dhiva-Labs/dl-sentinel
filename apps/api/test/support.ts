@@ -1,9 +1,18 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { TOOL_VERSION } from '@dl-sentinel/core';
+import type { ScanEngine } from '@dl-sentinel/engine';
 import { createServer } from '../src/index.js';
-import type { ScanRecord, ServerLogger, ServerOptions, SentinelApiServer } from '../src/index.js';
+import type {
+  AuditEntry,
+  ScanRecord,
+  ServerLogger,
+  ServerOptions,
+  SentinelApiServer,
+  UserRole,
+} from '../src/index.js';
 import { fixturePath } from '../../../tests/support/index.js';
 
 /** A logger that discards everything, keeping test output clean. */
@@ -145,6 +154,97 @@ export function sendJsonRequest(
     headers: { ...bearer(token), 'Content-Type': 'application/json' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
+}
+
+/** DELETE with a bearer token (no body). */
+export function deleteRequest(base: string, route: string, token: string): Promise<Response> {
+  return sendJsonRequest(base, route, token, 'DELETE');
+}
+
+/**
+ * An engine that completes instantly with an empty report. RBAC tests call
+ * `POST /api/scans` purely as a permission probe — whether it answers 202 or
+ * 403 is the whole assertion — so running a real scan there would only add
+ * seconds. Behaviour of actual scanning is covered by scans.test.ts.
+ */
+export function instantEngine(): ScanEngine {
+  return {
+    register: () => {},
+    plugins: () => [],
+    scan: async (options) => {
+      const at = new Date().toISOString();
+      return {
+        tool: { name: 'dl-sentinel', version: TOOL_VERSION },
+        project: path.basename(options.target),
+        target: options.target,
+        startedAt: at,
+        finishedAt: at,
+        durationMs: 0,
+        scannersRun: [],
+        stats: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
+        findings: [],
+        errors: [],
+      };
+    },
+  };
+}
+
+/** A user as returned by `POST /api/users`, including its one-time token. */
+export interface CreatedUser {
+  id: string;
+  name: string;
+  role: UserRole;
+  createdAt: string;
+  /** Shown exactly once by the API; the server keeps only its hash. */
+  token: string;
+}
+
+/**
+ * Create a user through the API and return it with its one-time token. Uses the
+ * root token by default (only an admin may create users).
+ */
+export async function createUser(
+  ctx: TestServer,
+  input: { name: string; role: UserRole },
+  adminToken: string = ctx.token,
+): Promise<CreatedUser> {
+  const res = await postJson(ctx.base, '/api/users', adminToken, input);
+  if (res.status !== 201) {
+    throw new Error(`Expected 201 creating user, got ${res.status}: ${await res.text()}`);
+  }
+  return (await res.json()) as CreatedUser;
+}
+
+/** Read and parse the JSONL audit log written under a test server's data dir. */
+export function readAuditLog(dataDir: string): AuditEntry[] {
+  let raw: string;
+  try {
+    raw = readFileSync(path.join(dataDir, 'audit.log'), 'utf8');
+  } catch {
+    return [];
+  }
+  return raw
+    .split('\n')
+    .filter((line) => line.trim() !== '')
+    .map((line) => JSON.parse(line) as AuditEntry);
+}
+
+/**
+ * Poll the audit log until an entry matching `predicate` appears (the append is
+ * fire-and-forget, so it can lag the response by a tick) or the deadline passes.
+ */
+export async function waitForAuditEntry(
+  dataDir: string,
+  predicate: (entry: AuditEntry) => boolean,
+  timeoutMs = 2000,
+): Promise<AuditEntry> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const match = readAuditLog(dataDir).find(predicate);
+    if (match !== undefined) return match;
+    if (Date.now() > deadline) throw new Error('Timed out waiting for a matching audit entry');
+    await new Promise((resolve) => setTimeout(resolve, 15));
+  }
 }
 
 /**
