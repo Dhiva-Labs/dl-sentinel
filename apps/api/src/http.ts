@@ -36,6 +36,19 @@ export function notFound(message = 'Not found'): HttpError {
   return new HttpError(404, 'not_found', message);
 }
 
+/**
+ * A scan exists but has not completed, so a finished-report endpoint cannot serve
+ * it. Applies to queued/running (retry later) and failed (no report will exist);
+ * the current status is included so callers can decide what to do.
+ */
+export function scanNotReady(status: string): HttpError {
+  return new HttpError(
+    409,
+    'scan_not_ready',
+    `No completed report is available for this scan (status: ${status})`,
+  );
+}
+
 const SECURITY_HEADERS: Record<string, string> = {
   'X-Content-Type-Options': 'nosniff',
 };

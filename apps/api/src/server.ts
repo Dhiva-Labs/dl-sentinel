@@ -1,11 +1,11 @@
 import { createServer as httpCreateServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { TOOL_VERSION } from '@dl-sentinel/core';
-import type { ScanEngine } from '@dl-sentinel/engine';
 import { createDefaultEngine } from '@dl-sentinel/preset';
 import { extractBearer, tokenId, tokenMatches } from './auth.js';
 import { resolveRuntime, stderrLogger } from './config.js';
 import { HttpError, methodNotAllowed, sendError, sendJson } from './http.js';
+import { ScanQueue } from './queue.js';
 import { RateLimiter } from './rate-limit.js';
 import { routeApi } from './router.js';
 import { createStaticServer } from './static.js';
@@ -16,7 +16,7 @@ import type { SentinelApiServer, SentinelRuntime, ServerLogger, ServerOptions } 
 interface RequestDeps {
   runtime: SentinelRuntime;
   store: ReportStore;
-  engineFactory: () => ScanEngine;
+  queue: ScanQueue;
   limiter: RateLimiter;
   staticServer: StaticServer;
   logger: ServerLogger;
@@ -33,7 +33,7 @@ async function handleRequest(
   res: ServerResponse,
   deps: RequestDeps,
 ): Promise<void> {
-  const { runtime, store, limiter, staticServer, logger } = deps;
+  const { runtime, store, queue, limiter, staticServer, logger } = deps;
   const method = req.method ?? 'GET';
   const url = new URL(req.url ?? '/', 'http://localhost');
   const pathname = url.pathname;
@@ -81,15 +81,7 @@ async function handleRequest(
         });
       }
 
-      await routeApi({
-        req,
-        res,
-        url,
-        runtime,
-        store,
-        engineFactory: deps.engineFactory,
-        logger,
-      });
+      await routeApi({ req, res, url, runtime, store, queue, logger });
       return;
     }
 
@@ -102,9 +94,15 @@ async function handleRequest(
 
 /**
  * Build the HTTP server without listening. The returned object is a Node
- * `http.Server` augmented with a `sentinel` property carrying the fully
- * resolved runtime (token, scan root, data dir, limits) for tests and
- * introspection. Existing scans are loaded synchronously during construction.
+ * `http.Server` augmented with a `sentinel` property carrying the fully resolved
+ * runtime (token, scan root, data dir, limits, concurrency) and a `queue`
+ * property exposing background-worker controls (`waitForJob`, `drain`, `stop`)
+ * for tests and graceful shutdown.
+ *
+ * Existing scan records are loaded synchronously during construction, then
+ * reconciled: any record left `running` by a previous process is marked `failed`
+ * ("interrupted by restart"), and any record still `queued` is re-enqueued so the
+ * background worker resumes it. Completed and failed records are never re-run.
  */
 export function createServer(options: ServerOptions = {}): SentinelApiServer {
   const logger = options.logger ?? stderrLogger();
@@ -118,13 +116,21 @@ export function createServer(options: ServerOptions = {}): SentinelApiServer {
 
   const store = new ReportStore(runtime.dataDir, logger);
   const engineFactory = options.engineFactory ?? createDefaultEngine;
+  const queue = new ScanQueue(store, engineFactory, runtime.scanConcurrency, logger);
   const limiter = new RateLimiter(runtime.rateLimit.windowMs, runtime.rateLimit.max);
   const staticServer = createStaticServer(logger, options.webRoot);
 
+  // Recover from an unclean shutdown before accepting traffic: fail interrupted
+  // jobs and re-enqueue ones that never started.
+  for (const id of store.reconcile(new Date().toISOString())) {
+    queue.enqueue(id);
+  }
+
   const server = httpCreateServer((req, res) => {
-    void handleRequest(req, res, { runtime, store, engineFactory, limiter, staticServer, logger });
+    void handleRequest(req, res, { runtime, store, queue, limiter, staticServer, logger });
   });
   Object.defineProperty(server, 'sentinel', { value: runtime, enumerable: true });
+  Object.defineProperty(server, 'queue', { value: queue, enumerable: true });
   return server as SentinelApiServer;
 }
 

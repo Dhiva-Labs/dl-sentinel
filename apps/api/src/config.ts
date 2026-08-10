@@ -7,6 +7,7 @@ const DEFAULT_PORT = 8752;
 const DEFAULT_MAX_BODY_BYTES = 1024 * 1024; // 1 MiB
 const DEFAULT_RATE_WINDOW_MS = 60_000;
 const DEFAULT_RATE_MAX = 60;
+const DEFAULT_SCAN_CONCURRENCY = 2;
 
 /** A logger that writes to stderr. Never used for request bodies or tokens. */
 export function stderrLogger(): ServerLogger {
@@ -69,5 +70,17 @@ export function resolveRuntime(options: ServerOptions, logger: ServerLogger): Se
 
   const port = options.port ?? parseIntEnv(env.PORT, DEFAULT_PORT);
 
-  return { token, tokenGenerated, scanRoot, dataDir, maxBodyBytes, rateLimit, port };
+  const scanConcurrency =
+    options.scanConcurrency ?? parseIntEnv(env.SENTINEL_SCAN_CONCURRENCY, DEFAULT_SCAN_CONCURRENCY);
+
+  return {
+    token,
+    tokenGenerated,
+    scanRoot,
+    dataDir,
+    maxBodyBytes,
+    rateLimit,
+    port,
+    scanConcurrency,
+  };
 }

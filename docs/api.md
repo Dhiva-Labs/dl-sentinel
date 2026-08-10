@@ -31,29 +31,64 @@ the server at arbitrary filesystem locations.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/api/scans` | Start a scan. Body: `{ "path": "/abs/dir", "scanners": ["secrets", ...]? }`. `path` must resolve within `SENTINEL_SCAN_ROOT`; `scanners` is an optional subset of registered scanner ids. |
-| `GET` | `/api/scans` | List scans. |
-| `GET` | `/api/scans/:id` | Get one scan's detail. |
-| `GET` | `/api/scans/:id/findings` | Get the findings for one scan. |
-| `GET` | `/api/findings` | Get findings across scans; filterable by severity and scanner. |
+| `POST` | `/api/scans` | Enqueue a scan (runs asynchronously; see [Asynchronous scans](#asynchronous-scans)). Body: `{ "path": "/abs/dir", "scanners": ["secrets", ...]? }`. `path` must resolve within `SENTINEL_SCAN_ROOT`; `scanners` is an optional subset of registered scanner ids. Returns `202`. |
+| `GET` | `/api/scans` | List scan records with their status. |
+| `GET` | `/api/scans/:id` | Get one scan record (includes its `report` once completed, or an `error` when failed). |
+| `GET` | `/api/scans/:id/findings` | Get the findings for one completed scan. `409` while it is still queued/running. |
+| `GET` | `/api/findings` | Get findings across completed scans; filterable by severity and scanner. |
 | `GET` | `/api/rules` | List rules from registered scanners — the same data `sentinel rules` prints. See [Rules](rules.md#listing-rules-sentinel-rules). |
-| `GET` | `/api/reports/:id` | Get a rendered report for a scan. `?format=json\|markdown\|sarif` selects the format. |
+| `GET` | `/api/reports/:id` | Get a rendered report for a completed scan. `?format=json\|markdown\|sarif` selects the format. `409` while it is still queued/running. |
 | `GET` | `/health` | Health check. |
 
 ## Response shapes
 
-- `POST /api/scans` returns `201` with `{ id, status, stats }`, where `stats` is the
-  `SeverityStats` object (`critical`, `high`, `medium`, `low`, `info`).
-- `GET /api/scans` returns an array of scan summaries: `{ id, project, startedAt, stats,
-  findingCount }`.
-- `GET /api/scans/:id` returns the full `Report` (see `packages/core/src/types.ts`); `404` if
-  unknown.
+- `POST /api/scans` returns `202` with `{ id, status: "queued" }` — the scan is enqueued, not
+  yet run. Body validation (JSON shape, `path` within `SENTINEL_SCAN_ROOT`, known `scanners`)
+  still happens synchronously, so an invalid request is rejected with `400` before anything is
+  queued.
+- `GET /api/scans` returns an array of scan summaries: `{ id, status, path, createdAt }`, plus
+  `startedAt`/`finishedAt` once they exist and, for completed scans, the report-derived
+  `project`, `durationMs`, `scannersRun`, `stats` (the `SeverityStats` object) and
+  `findingCount`.
+- `GET /api/scans/:id` returns the full scan record: `{ id, status, path, scanners?, createdAt,
+  startedAt?, finishedAt?, report?, error? }`. `report` is present iff `status === "completed"`;
+  `error` (a client-safe message) is present iff `status === "failed"`. `404` if unknown.
 - `GET /api/scans/:id/findings` and `GET /api/findings` return arrays of `Finding` objects (see
   [Finding schema](finding-schema.md)); both accept `?severity=` and `?scanner=` filters.
+  `/api/findings` aggregates across completed scans only. A per-scan request for a scan that has
+  not completed returns `409` (see [Asynchronous scans](#asynchronous-scans)).
 - `GET /api/rules` returns an array of rule objects (`RuleMeta` fields plus the owning
   `scanner` id) — the same data `sentinel rules` prints.
-- `GET /api/reports/:id?format=json|markdown|sarif` renders a stored `Report` through the same
-  `renderReport(report, format)` the CLI uses; default `json`; `404` if unknown.
+- `GET /api/reports/:id?format=json|markdown|sarif` renders a completed scan's `Report` through
+  the same `renderReport(report, format)` the CLI uses; default `json`; `404` if unknown, `409`
+  if not yet completed.
+
+## Asynchronous scans
+
+`POST /api/scans` enqueues a job and returns immediately; the scan runs in the background so the
+request is never held open for the duration of a scan. The lifecycle is:
+
+```text
+queued ──► running ──► completed   (report available)
+                   └──► failed      (error message available)
+```
+
+A bounded in-process worker pool executes jobs. Its size comes from
+`SENTINEL_SCAN_CONCURRENCY` (default `2`; a non-positive or unparseable value falls back to the
+default). No more than that many scans run at once; additional jobs wait as `queued`.
+
+Poll `GET /api/scans/:id` to follow a job. Endpoints that need a finished report
+(`GET /api/scans/:id/findings`, `GET /api/reports/:id`) return `409` with
+`{ "error": { "code": "scan_not_ready", "message": "..." } }` until the scan is `completed`; a
+`failed` scan likewise has no report and returns `409` there (its `error` is on the record from
+`GET /api/scans/:id`). `GET /api/findings` is not tied to a single scan — it aggregates the
+findings of completed scans only, so it returns `200` (possibly an empty array) rather than
+`409`.
+
+Records and their status are persisted under `SENTINEL_DATA_DIR`, so they survive a restart.
+On startup the server reconciles persisted state after a possible unclean shutdown: a record
+left `running` is marked `failed` with the message `interrupted by restart`, and a record still
+`queued` is re-enqueued so the worker resumes it. Completed and failed records are never re-run.
 
 ## Errors
 
@@ -63,9 +98,12 @@ Structured JSON, never a bare string or an HTTP status alone:
 { "error": { "code": "...", "message": "..." } }
 ```
 
-Current `code` values: `validation_error` (400), `unauthorized` (401), `not_found` (404),
-`method_not_allowed` (405), `payload_too_large` (413), `rate_limited` (429), and
-`internal_error` (500). Server errors never include a stack trace in the response body.
+Current `code` values: `validation_error` (400), `invalid_json` (400), `unauthorized` (401),
+`not_found` (404), `method_not_allowed` (405), `scan_not_ready` (409), `payload_too_large`
+(413), `rate_limited` (429), and `internal_error` (500). Server errors never include a stack
+trace in the response body, and a failed scan's `error` message is sanitized — engine
+validation messages are surfaced as-is, but any other failure collapses to a generic message so
+internal detail never leaks.
 
 ## Rate limiting
 

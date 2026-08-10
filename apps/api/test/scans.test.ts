@@ -1,64 +1,74 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Finding, Report, SeverityStats } from '@dl-sentinel/core';
-import { bearer, postJson, startTestServer, vulnerableApp } from './support.js';
+import type { Finding, SeverityStats } from '@dl-sentinel/core';
+import { bearer, postJson, startTestServer, vulnerableApp, waitForScan } from './support.js';
 import type { TestServer } from './support.js';
+import type { ScanRecord, ScanSummary } from '../src/index.js';
 
 interface CreateResponse {
   id: string;
   status: string;
-  stats: SeverityStats;
 }
 
 function totalFindings(stats: SeverityStats): number {
   return stats.critical + stats.high + stats.medium + stats.low + stats.info;
 }
 
-describe('scans lifecycle', () => {
+describe('scans lifecycle (async)', () => {
   let ctx: TestServer;
   let created: CreateResponse;
+  let completed: ScanRecord;
 
   beforeAll(async () => {
     ctx = await startTestServer();
     const res = await postJson(ctx.base, '/api/scans', ctx.token, { path: vulnerableApp() });
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(202);
     created = (await res.json()) as CreateResponse;
+    // Deterministically await the background worker reaching a terminal state.
+    completed = await waitForScan(ctx, created.id);
   });
 
   afterAll(async () => {
     await ctx.cleanup();
   });
 
-  it('POST /api/scans returns 201 with id, status and stats', () => {
+  it('POST /api/scans returns 202 with id and status "queued"', () => {
     expect(typeof created.id).toBe('string');
     expect(created.id.length).toBeGreaterThan(0);
-    expect(created.status).toBe('completed');
-    expect(totalFindings(created.stats)).toBeGreaterThan(0);
+    expect(created.status).toBe('queued');
   });
 
-  it('GET /api/scans lists the created scan as a summary', async () => {
+  it('the enqueued job completes with a report carrying findings', () => {
+    expect(completed.status).toBe('completed');
+    expect(completed.report).toBeDefined();
+    expect(completed.error).toBeUndefined();
+    expect(totalFindings(completed.report!.stats)).toBeGreaterThan(0);
+  });
+
+  it('GET /api/scans lists the scan as a summary with status and completed stats', async () => {
     const res = await fetch(`${ctx.base}/api/scans`, { headers: bearer(ctx.token) });
     expect(res.status).toBe(200);
-    const summaries = (await res.json()) as Array<{
-      id: string;
-      project: string;
-      startedAt: string;
-      stats: SeverityStats;
-    }>;
+    const summaries = (await res.json()) as ScanSummary[];
     const summary = summaries.find((s) => s.id === created.id);
     expect(summary).toBeDefined();
+    expect(summary?.status).toBe('completed');
+    expect(summary?.path).toBe(completed.path);
+    expect(typeof summary?.createdAt).toBe('string');
     expect(summary?.project).toBe('vulnerable-app');
-    expect(typeof summary?.startedAt).toBe('string');
-    expect(summary?.stats).toEqual(created.stats);
+    expect(summary?.stats).toEqual(completed.report!.stats);
+    expect(summary?.findingCount).toBe(completed.report!.findings.length);
   });
 
-  it('GET /api/scans/:id returns the full stored report', async () => {
+  it('GET /api/scans/:id returns the full record with the report when completed', async () => {
     const res = await fetch(`${ctx.base}/api/scans/${created.id}`, { headers: bearer(ctx.token) });
     expect(res.status).toBe(200);
-    const report = (await res.json()) as Report;
-    expect(report.project).toBe('vulnerable-app');
-    expect(report.tool.name).toBeTruthy();
-    expect(report.findings.length).toBe(totalFindings(created.stats));
-    expect(report.scannersRun.length).toBeGreaterThan(0);
+    const record = (await res.json()) as ScanRecord;
+    expect(record.id).toBe(created.id);
+    expect(record.status).toBe('completed');
+    expect(record.error).toBeUndefined();
+    expect(record.report).toBeDefined();
+    expect(record.report!.project).toBe('vulnerable-app');
+    expect(record.report!.findings.length).toBe(totalFindings(record.report!.stats));
+    expect(record.report!.scannersRun.length).toBeGreaterThan(0);
   });
 
   it('GET /api/scans/:id/findings returns the findings array', async () => {
@@ -68,7 +78,7 @@ describe('scans lifecycle', () => {
     expect(res.status).toBe(200);
     const findings = (await res.json()) as Finding[];
     expect(Array.isArray(findings)).toBe(true);
-    expect(findings.length).toBe(totalFindings(created.stats));
+    expect(findings.length).toBe(totalFindings(completed.report!.stats));
   });
 
   it('filters findings by severity', async () => {
@@ -105,11 +115,11 @@ describe('scans lifecycle', () => {
     expect(filtered.every((f) => f.scanner === scanner)).toBe(true);
   });
 
-  it('GET /api/findings returns findings across all scans', async () => {
+  it('GET /api/findings returns findings across all completed scans', async () => {
     const res = await fetch(`${ctx.base}/api/findings`, { headers: bearer(ctx.token) });
     expect(res.status).toBe(200);
     const findings = (await res.json()) as Finding[];
-    expect(findings.length).toBe(totalFindings(created.stats));
+    expect(findings.length).toBe(totalFindings(completed.report!.stats));
   });
 
   it('GET /api/findings honours the scanner filter', async () => {
@@ -177,7 +187,7 @@ describe('scan request validation', () => {
     expect(res.status).toBe(400);
   });
 
-  it('rejects an unknown scanner id (400)', async () => {
+  it('rejects an unknown scanner id (400) before enqueueing', async () => {
     const res = await postJson(ctx.base, '/api/scans', ctx.token, {
       path: vulnerableApp(),
       scanners: ['secrets', 'not-a-scanner'],
@@ -213,13 +223,14 @@ describe('scan request validation', () => {
     expect(body.error.code).toBe('invalid_json');
   });
 
-  it('honours an explicit scanner subset', async () => {
+  it('honours an explicit scanner subset once the job completes', async () => {
     const res = await postJson(ctx.base, '/api/scans', ctx.token, {
       path: vulnerableApp(),
       scanners: ['secrets'],
     });
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(202);
     const created = (await res.json()) as CreateResponse;
+    await waitForScan(ctx, created.id);
 
     const findings = (await (
       await fetch(`${ctx.base}/api/scans/${created.id}/findings`, { headers: bearer(ctx.token) })

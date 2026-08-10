@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { BUILTIN_SCANNERS } from '@dl-sentinel/preset';
-import { bearer, postJson, startTestServer, vulnerableApp } from './support.js';
+import { bearer, postJson, startTestServer, vulnerableApp, waitForScan } from './support.js';
 import type { TestServer } from './support.js';
 
 describe('rules endpoint', () => {
@@ -35,8 +35,11 @@ describe('rendered reports', () => {
   beforeAll(async () => {
     ctx = await startTestServer();
     const res = await postJson(ctx.base, '/api/scans', ctx.token, { path: vulnerableApp() });
+    expect(res.status).toBe(202);
     const created = (await res.json()) as { id: string };
     scanId = created.id;
+    // Reports render only from a completed scan; wait for the worker to finish.
+    await waitForScan(ctx, scanId);
   });
 
   afterAll(async () => {
