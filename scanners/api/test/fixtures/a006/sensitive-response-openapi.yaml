@@ -1,0 +1,39 @@
+openapi: 3.0.3
+info:
+  title: A006 Sensitive Response Fixture
+  version: 1.0.0
+paths:
+  /users/{id}:
+    get:
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserWithSecret'
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    UserWithSecret:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        password:
+          type: string
+        api_key:
+          type: string

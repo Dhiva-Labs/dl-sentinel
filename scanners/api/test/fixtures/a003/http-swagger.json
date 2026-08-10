@@ -1,0 +1,9 @@
+{
+  "swagger": "2.0",
+  "info": { "title": "A003 Swagger Http", "version": "1.0.0" },
+  "host": "api.example.com",
+  "schemes": ["http"],
+  "paths": {
+    "/ping": { "get": { "responses": { "200": { "description": "OK" } } } }
+  }
+}

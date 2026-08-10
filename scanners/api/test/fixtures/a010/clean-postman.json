@@ -1,0 +1,22 @@
+{
+  "info": {
+    "_postman_id": "99999999-8888-7777-6666-555555555555",
+    "name": "A010 Clean Fixture",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "https://api.example.com" },
+    { "key": "apiToken", "value": "{{vault:apiToken}}" }
+  ],
+  "item": [
+    {
+      "name": "Get widgets",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{apiToken}}" }],
+        "url": "{{baseUrl}}/widgets"
+      },
+      "response": []
+    }
+  ]
+}

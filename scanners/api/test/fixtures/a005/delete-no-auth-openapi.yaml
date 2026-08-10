@@ -1,0 +1,16 @@
+openapi: 3.0.3
+info:
+  title: A005 Delete No Auth Fixture
+  version: 1.0.0
+paths:
+  /items/{id}:
+    delete:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted

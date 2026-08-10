@@ -1,0 +1,15 @@
+{
+  "swagger": "2.0",
+  "info": { "title": "A002 Swagger ApiKey Query", "version": "1.0.0" },
+  "paths": {
+    "/data": {
+      "get": {
+        "security": [{ "ApiKeyQuery": [] }],
+        "responses": { "200": { "description": "OK" } }
+      }
+    }
+  },
+  "securityDefinitions": {
+    "ApiKeyQuery": { "type": "apiKey", "in": "query", "name": "api_key" }
+  }
+}

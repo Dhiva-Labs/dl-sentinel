@@ -1,0 +1,35 @@
+openapi: 3.0.3
+info:
+  title: A009 Unconstrained Fixture
+  version: 1.0.0
+paths:
+  /signup:
+    post:
+      parameters:
+        - name: referrer
+          in: query
+          schema:
+            type: string
+        - name: campaign
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                bio:
+                  type: string
+                nickname:
+                  type: string
+                age:
+                  type: integer
+                score:
+                  type: number
+      responses:
+        '201':
+          description: Created

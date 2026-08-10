@@ -1,0 +1,24 @@
+openapi: 3.0.3
+info:
+  title: A005 Override Confirmed Fixture
+  version: 1.0.0
+security:
+  - BearerAuth: []
+paths:
+  /items/{id}:
+    delete:
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer

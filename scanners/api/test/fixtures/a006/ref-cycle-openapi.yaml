@@ -1,0 +1,40 @@
+openapi: 3.0.3
+info:
+  title: A006 Ref Cycle Fixture
+  version: 1.0.0
+paths:
+  /nodes/{id}:
+    get:
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodeA'
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    NodeA:
+      type: object
+      properties:
+        token:
+          type: string
+        child:
+          $ref: '#/components/schemas/NodeB'
+    NodeB:
+      type: object
+      properties:
+        parent:
+          $ref: '#/components/schemas/NodeA'

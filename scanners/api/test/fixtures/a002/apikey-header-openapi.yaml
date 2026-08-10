@@ -1,0 +1,18 @@
+openapi: 3.0.3
+info:
+  title: A002 ApiKey Header Fixture
+  version: 1.0.0
+paths:
+  /data:
+    get:
+      security:
+        - ApiKeyHeader: []
+      responses:
+        '200':
+          description: OK
+components:
+  securitySchemes:
+    ApiKeyHeader:
+      type: apiKey
+      in: header
+      name: X-Api-Key

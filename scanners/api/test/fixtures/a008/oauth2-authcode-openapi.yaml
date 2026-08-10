@@ -1,0 +1,21 @@
+openapi: 3.0.3
+info:
+  title: A008 OAuth2 AuthCode Fixture
+  version: 1.0.0
+paths:
+  /data:
+    get:
+      security:
+        - OAuth2Code: []
+      responses:
+        '200':
+          description: OK
+components:
+  securitySchemes:
+    OAuth2Code:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: https://auth.example.com/authorize
+          tokenUrl: https://auth.example.com/token
+          scopes: {}

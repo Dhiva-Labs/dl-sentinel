@@ -1,0 +1,40 @@
+{
+  "info": {
+    "_postman_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    "name": "General Postman Fixture",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [{ "key": "baseUrl", "value": "https://api.example.com" }],
+  "item": [
+    {
+      "name": "Search",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "apikey",
+          "apikey": [
+            { "key": "key", "value": "api_key" },
+            { "key": "value", "value": "{{apiKeyValue}}" },
+            { "key": "in", "value": "query" }
+          ]
+        },
+        "url": "{{baseUrl}}/search?q=test"
+      },
+      "response": []
+    },
+    {
+      "name": "Legacy",
+      "auth": { "type": "oauth1", "oauth1": [] },
+      "item": [
+        {
+          "name": "Legacy Ping",
+          "request": {
+            "method": "GET",
+            "url": "http://legacy.example.com/ping"
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
