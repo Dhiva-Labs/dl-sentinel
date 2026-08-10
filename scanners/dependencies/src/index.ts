@@ -28,6 +28,10 @@ export const dependenciesScanner: ScannerPlugin = {
   supportedFiles: [
     '**/package.json',
     '**/package-lock.json',
+    // yarn.lock / pnpm-lock.yaml are not parsed for records; they are matched
+    // so D003 can see them and correctly suppress its missing-lockfile finding.
+    '**/yarn.lock',
+    '**/pnpm-lock.yaml',
     '**/requirements.txt',
     '**/requirements-*.txt',
     '**/go.mod',

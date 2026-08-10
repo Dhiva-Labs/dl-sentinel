@@ -23,6 +23,8 @@ describe('dependenciesScanner plugin shape', () => {
     expect(dependenciesScanner.supportedFiles).toEqual([
       '**/package.json',
       '**/package-lock.json',
+      '**/yarn.lock',
+      '**/pnpm-lock.yaml',
       '**/requirements.txt',
       '**/requirements-*.txt',
       '**/go.mod',
