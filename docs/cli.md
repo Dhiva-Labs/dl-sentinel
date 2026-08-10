@@ -1,10 +1,12 @@
 # CLI reference
 
-> Status: implementation in progress. `apps/cli/src/index.ts` currently contains only an
-> interface stub (`export {}`) in this codebase. This page documents the command contract fixed
-> in [Architecture](architecture.md); it is not a description of a working binary yet.
+Binary name: `sentinel` (package `@dl-sentinel/cli`, `apps/cli`). Build the workspace
+(`npm run build`) and run `node apps/cli/dist/main.js <command>`, or invoke `sentinel`
+once the package is installed.
 
-Binary name: `sentinel` (package `@dl-sentinel/cli`, `apps/cli`).
+Global flags: `--help` / `-h` prints usage to stdout and exits `0`; `--version` prints the
+version and exits `0`. Progress output is written to stderr (only when stderr is a TTY and
+`--quiet` is not set) so that `--format json` on stdout stays machine-parseable.
 
 ## Commands
 
@@ -19,6 +21,10 @@ Scans a directory with the registered scanners and prints a report.
 | `--output <path>` | file path | Write the report to a file instead of stdout. |
 | `--scanners <ids>` | comma-separated scanner ids | Run only this subset of registered scanners. |
 | `--fail-on <severities>` | comma-separated severities | Override `policy.failOn` for this run. |
+| `--quiet` | flag | Suppress the stderr progress output. |
+| `--no-color` | flag | Disable ANSI color (also honored via `NO_COLOR` and auto-off when not a TTY). |
+
+An unknown `--scanners` id or `--fail-on` severity is a usage error (exit `64`).
 
 Examples:
 
@@ -42,19 +48,25 @@ sentinel rules
 ### `sentinel version`
 
 Prints the tool name and version (`DL Sentinel` / `0.1.0` today, from `TOOL_NAME` /
-`TOOL_VERSION` in `@dl-sentinel/core`).
+`TOOL_VERSION` in `@dl-sentinel/core`). Add `--format json` for a machine-readable
+`{ "name", "version" }` object.
 
 ```bash
 sentinel version
+sentinel version --format json
 ```
+
+`sentinel rules` also accepts `--format terminal|json` and `--scanners <ids>`.
 
 ### `sentinel report <file>`
 
-Re-renders a previously saved JSON report in another format, without re-scanning.
+Re-renders a previously saved JSON report in another format, without re-scanning. An input
+that does not parse as a `Report` is a usage error (exit `64`).
 
 | Flag | Value | Meaning |
 | --- | --- | --- |
 | `--format <format>` | `terminal` \| `json` \| `sarif` \| `markdown` | Output format. |
+| `--output <path>` | file path | Write the rendered report to a file instead of stdout. |
 
 ```bash
 sentinel report scan.json --format markdown
@@ -87,9 +99,9 @@ errors, then a closing line.
 
 ## Output formats
 
-`terminal`, `json`, `markdown`, and `sarif` renderers are implemented today in
-`@dl-sentinel/reporting` (`packages/reporting/src`); what's still in progress is the CLI code
-that calls them. SARIF output targets SARIF 2.1.0; severity maps to SARIF level as follows (see
+`terminal`, `json`, `markdown`, and `sarif` renderers live in `@dl-sentinel/reporting`
+(`packages/reporting/src`) and the CLI selects among them with `--format`. SARIF output
+targets SARIF 2.1.0; severity maps to SARIF level as follows (see
 [Finding schema](finding-schema.md#sarif-mapping-reporting)):
 
 | Severity | SARIF level |
