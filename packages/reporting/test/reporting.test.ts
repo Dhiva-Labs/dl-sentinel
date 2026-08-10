@@ -107,6 +107,45 @@ describe('renderSarif', () => {
   });
 });
 
+describe('suppressed and baseline counts', () => {
+  it('terminal shows a Suppressed line only when the field is set', () => {
+    expect(renderTerminal(sampleReport())).not.toContain('Suppressed:');
+    const out = renderTerminal({ ...sampleReport(), suppressed: 3 });
+    expect(out).toContain('Suppressed: 3');
+  });
+
+  it('terminal shows new-vs-baselined only when the baseline field is set', () => {
+    expect(renderTerminal(sampleReport())).not.toContain('Baselined:');
+    const out = renderTerminal({ ...sampleReport(), baseline: { newFindings: 2, baselined: 5 } });
+    expect(out).toContain('New: 2');
+    expect(out).toContain('Baselined: 5');
+  });
+
+  it('markdown notes suppressed and baseline counts when present', () => {
+    const out = renderMarkdown({
+      ...sampleReport(),
+      suppressed: 1,
+      baseline: { newFindings: 4, baselined: 6 },
+    });
+    expect(out).toContain('**Suppressed:** 1');
+    expect(out).toContain('**New:** 4');
+    expect(out).toContain('**Baselined:** 6');
+  });
+
+  it('json serializes the new fields naturally', () => {
+    const parsed = JSON.parse(
+      renderJson({ ...sampleReport(), suppressed: 2, baseline: { newFindings: 1, baselined: 3 } }),
+    ) as Report;
+    expect(parsed.suppressed).toBe(2);
+    expect(parsed.baseline).toEqual({ newFindings: 1, baselined: 3 });
+  });
+
+  it('sarif keeps emitting only the reported findings (no structural change)', () => {
+    const withBaseline = { ...sampleReport(), baseline: { newFindings: 2, baselined: 5 } };
+    expect(renderSarif(withBaseline)).toBe(renderSarif(sampleReport()));
+  });
+});
+
 describe('renderReport', () => {
   it('dispatches each format', () => {
     const report = sampleReport();

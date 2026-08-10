@@ -27,6 +27,13 @@ scanners:
     advisoryDbPath: null
 policy:
   failOn: [critical, high]
+suppress:
+  - rule: S008             # match by rule id
+    path: '**/*.test.env'  # AND by file glob
+    reason: fake keys used in tests
+    expires: 2027-01-01    # optional; the rule lapses on/after this date
+  - id: 9f2c4a1b8d3e6f70   # or pin a single finding by fingerprint
+    reason: accepted risk, tracked in TICKET-123
 ```
 
 ## `include` / `exclude`
@@ -109,6 +116,45 @@ otherwise take no required settings today. See [Scanners](scanners.md) for their
 Policy is evaluated by `evaluatePolicy(stats, policy)` in `@dl-sentinel/core`, which returns
 `{ pass: boolean, violations: Severity[] }` — `violations` is the subset of `failOn` severities
 that actually had findings. See [CLI reference: exit codes](cli.md#exit-codes).
+
+## `suppress`
+
+A list of suppression rules applied to findings after scanning, so a project can drop findings it
+has reviewed and accepted. This is the general, finding-model-level form of the per-scanner
+allowlists (e.g. `scanners.secrets.allowlist`): every scanner's output passes through it. Suppressed
+findings are removed from `report.findings` and from the severity stats, and their number is
+recorded in `report.suppressed`.
+
+Each entry is a rule with these optional fields:
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `rule` | `string` | Match findings emitted by this rule id, e.g. `S001`. |
+| `scanner` | `string` | Match findings produced by this scanner id, e.g. `secrets`. |
+| `path` | `string` | Match findings whose repo-relative file matches this glob (same semantics as `include`/`exclude`). |
+| `id` | `string` | Match a single finding by its stable fingerprint id. |
+| `reason` | `string` | Audit trail only; not used for matching. |
+| `expires` | `string` | ISO-8601 date; on/after this date the rule stops suppressing. |
+
+Matching semantics:
+
+- **Every field a rule specifies must match** (logical AND). A rule with `rule: S008` and
+  `path: '**/*.test.env'` suppresses an `S008` finding only when it is also in a `*.test.env` file.
+- A finding is suppressed when it matches **any** active rule (logical OR across rules).
+- A rule that specifies **no matcher** (`rule`/`scanner`/`path`/`id`) matches nothing, so a blank or
+  reason-only entry can never hide everything by accident.
+- **Expiry.** When `expires` is set, the rule stops suppressing on or after that date and the
+  finding **resurfaces** rather than staying hidden forever — a deliberate nudge to re-review
+  accepted risk. An unparseable `expires` value is treated as "never expires".
+
+Malformed input is lenient rather than fatal: if `suppress` is not a list, or an individual entry is
+not a mapping or has a non-string field, DL Sentinel warns and ignores that piece and keeps going,
+so one typo cannot abort an entire scan. (Every other config error throws.)
+
+Baselines are a related but separate mechanism for reporting only newly introduced findings; they
+live in their own file rather than in `sentinel.yml`. See
+[CLI reference: baseline semantics](cli.md#sentinel-scan-target) and
+[`sentinel baseline`](cli.md#sentinel-baseline-target).
 
 ## Precedence
 

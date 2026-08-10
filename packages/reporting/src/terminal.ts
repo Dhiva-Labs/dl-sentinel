@@ -31,6 +31,18 @@ export function renderTerminal(report: Report): string {
   lines.push(`Low:      ${report.stats.low}`);
   lines.push(`Info:     ${report.stats.info}`);
 
+  // Suppression happens in the engine, baseline comparison in the CLI; surface
+  // each only when it was applied (the fields are otherwise absent).
+  if (report.suppressed !== undefined || report.baseline !== undefined) {
+    lines.push('');
+    if (report.suppressed !== undefined) {
+      lines.push(`Suppressed: ${report.suppressed}`);
+    }
+    if (report.baseline !== undefined) {
+      lines.push(`New: ${report.baseline.newFindings}  (Baselined: ${report.baseline.baselined})`);
+    }
+  }
+
   if (report.errors.length > 0) {
     lines.push('');
     lines.push('Scanner errors:');
