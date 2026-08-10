@@ -239,6 +239,60 @@ export interface ApiRule extends RuleMeta {
   scanner: string;
 }
 
+/**
+ * What an authenticated caller may do (docs/architecture.md §API server, "Users
+ * and RBAC"): `viewer` reads, `operator` additionally starts scans, `admin` may
+ * do everything including schedule and user management. The bootstrap token is
+ * always `admin`, so every existing single-token deployment keeps working.
+ */
+export type UserRole = 'admin' | 'operator' | 'viewer';
+
+/**
+ * A persisted API user, stored under `<dataDir>/users/<id>.json` alongside scans
+ * and schedules, so users survive a restart. Authentication stays token-only —
+ * there is no password field anywhere in the system. The token is generated
+ * server-side, returned exactly once by create/rotate, and kept **only** as the
+ * SHA-256 hex digest in {@link UserRecord.tokenHash}; it is never logged,
+ * re-served, or recoverable from this record.
+ */
+export interface UserRecord {
+  id: string;
+  /** Display name, shown in the dashboard and used for `GET /api/me`. */
+  name: string;
+  role: UserRole;
+  /** SHA-256 hex digest of the user's bearer token. Never served over the API. */
+  tokenHash: string;
+  /** ISO timestamp the user was created. */
+  createdAt: string;
+  /** When true the user's token authenticates as invalid (401), like a deletion. */
+  disabled?: boolean;
+}
+
+/**
+ * A user as served by `/api/users*`: the record minus its token hash. Built
+ * field by field (never by spreading a {@link UserRecord}) so a hash can never
+ * leak into a response through a later field addition.
+ */
+export interface PublicUser {
+  id: string;
+  name: string;
+  role: UserRole;
+  createdAt: string;
+  disabled: boolean;
+}
+
+/**
+ * The resolved caller of one authenticated request. Attached to the request
+ * context by the server; drives authorization and audit attribution.
+ */
+export interface AuthContext {
+  /** `root` for the bootstrap token, else the user record's id. */
+  userId: string;
+  /** `root` for the bootstrap token, else the user's name. */
+  name: string;
+  role: UserRole;
+}
+
 /** One line of the JSONL audit log. Never contains a token or secret in full. */
 export interface AuditEntry {
   ts: string;
@@ -247,12 +301,18 @@ export interface AuditEntry {
   status: number;
   /** Short hash prefix identifying the caller's token; never the token itself. */
   tokenId: string;
+  /**
+   * The acting user: `root` for the bootstrap token, a user id for a user token,
+   * `-` when the request was not authenticated (health, static assets, a 401).
+   */
+  userId: string;
   ip: string;
 }
 
 /** Machine-readable error codes carried in `{ error: { code, message } }`. */
 export type ErrorCode =
   | 'unauthorized'
+  | 'forbidden'
   | 'not_found'
   | 'method_not_allowed'
   | 'validation_error'

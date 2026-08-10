@@ -15,6 +15,13 @@
  * for status and the report; the `queue` control surface on the returned server
  * (`waitForJob`, `drain`, `stop`) makes this deterministic for tests and enables
  * graceful shutdown.
+ *
+ * Auth note: authentication is token-only (no passwords anywhere). The bootstrap
+ * token (`SENTINEL_API_TOKEN`, or the generated one) is the root admin and always
+ * works, so a single-token deployment is unaffected by roles. Admins may
+ * additionally create users at `/api/users`, each with their own token and a role
+ * (`viewer` / `operator` / `admin`) that gates what they may call; an
+ * under-privileged request is a `403`. See docs/api.md.
  */
 export { createServer, startServer } from './server.js';
 export type {
@@ -31,4 +38,9 @@ export type {
   HistoryEntry,
   TrendPoint,
   ServerLogger,
+  UserRole,
+  UserRecord,
+  PublicUser,
+  AuthContext,
+  AuditEntry,
 } from './types.js';

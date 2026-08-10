@@ -2,7 +2,7 @@ import { createServer as httpCreateServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { TOOL_VERSION } from '@dl-sentinel/core';
 import { createDefaultEngine } from '@dl-sentinel/preset';
-import { extractBearer, tokenId, tokenMatches } from './auth.js';
+import { extractBearer, resolveAuth, tokenId } from './auth.js';
 import { resolveRuntime, stderrLogger } from './config.js';
 import { HttpError, methodNotAllowed, sendError, sendJson } from './http.js';
 import { ScanQueue } from './queue.js';
@@ -26,9 +26,10 @@ interface RequestDeps {
 
 /**
  * Handle one request through the pipeline: audit hook → health (no auth) →
- * `/api/*` (auth, then rate limit, then routing) → dashboard static assets (no
- * auth). Any thrown {@link HttpError} becomes a structured error response; any
- * other error becomes a generic 500 without leaking internals.
+ * `/api/*` (authenticate, then rate limit, then route — which authorizes by
+ * role) → dashboard static assets (no auth). Any thrown {@link HttpError}
+ * becomes a structured error response; any other error becomes a generic 500
+ * without leaking internals.
  */
 async function handleRequest(
   req: IncomingMessage,
@@ -41,6 +42,7 @@ async function handleRequest(
   const pathname = url.pathname;
   const ip = req.socket.remoteAddress ?? '-';
   let auditToken = '-';
+  let auditUserId = '-';
 
   res.on('finish', () => {
     void store.audit({
@@ -49,6 +51,7 @@ async function handleRequest(
       path: pathname,
       status: res.statusCode,
       tokenId: auditToken,
+      userId: auditUserId,
       ip,
     });
   });
@@ -69,12 +72,19 @@ async function handleRequest(
         });
       }
       auditToken = tokenId(provided);
-      if (!tokenMatches(provided, runtime.token)) {
+      // The bootstrap token resolves to the root admin; any other token is
+      // matched against the user store. A disabled or unknown token is a 401,
+      // exactly as before users existed.
+      const auth = resolveAuth(provided, runtime.token, store.listUsers());
+      if (auth === undefined) {
         throw new HttpError(401, 'unauthorized', 'Invalid bearer token', {
           'WWW-Authenticate': 'Bearer',
         });
       }
+      auditUserId = auth.userId;
 
+      // Keyed by the token's hash prefix, so every caller — root and each user —
+      // gets an independent budget and one noisy user cannot starve another.
       const limit = limiter.check(auditToken);
       if (!limit.allowed) {
         const retryAfter = Math.max(1, Math.ceil(limit.retryAfterMs / 1000));
@@ -83,7 +93,7 @@ async function handleRequest(
         });
       }
 
-      await routeApi({ req, res, url, runtime, store, queue, logger, now });
+      await routeApi({ req, res, url, runtime, store, queue, logger, auth, now });
       return;
     }
 
