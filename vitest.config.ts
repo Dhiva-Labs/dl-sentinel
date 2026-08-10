@@ -11,6 +11,7 @@ export default defineConfig({
       '@dl-sentinel/core': src('./packages/core/src/index.ts'),
       '@dl-sentinel/engine': src('./packages/engine/src/index.ts'),
       '@dl-sentinel/reporting': src('./packages/reporting/src/index.ts'),
+      '@dl-sentinel/preset': src('./packages/preset/src/index.ts'),
       '@dl-sentinel/scanner-secrets': src('./scanners/secrets/src/index.ts'),
       '@dl-sentinel/scanner-dependencies': src('./scanners/dependencies/src/index.ts'),
       '@dl-sentinel/scanner-source': src('./scanners/source/src/index.ts'),

@@ -1,0 +1,28 @@
+{
+  "name": "@dl-sentinel/preset",
+  "version": "0.1.0",
+  "description": "DL Sentinel default engine preset: all built-in scanners registered",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@dl-sentinel/core": "*",
+    "@dl-sentinel/engine": "*",
+    "@dl-sentinel/scanner-api": "*",
+    "@dl-sentinel/scanner-dependencies": "*",
+    "@dl-sentinel/scanner-infra": "*",
+    "@dl-sentinel/scanner-secrets": "*",
+    "@dl-sentinel/scanner-smart-contract": "*",
+    "@dl-sentinel/scanner-source": "*"
+  }
+}

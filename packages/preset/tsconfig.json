@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../core" },
+    { "path": "../engine" },
+    { "path": "../../scanners/secrets" },
+    { "path": "../../scanners/dependencies" },
+    { "path": "../../scanners/source" },
+    { "path": "../../scanners/infra" },
+    { "path": "../../scanners/api" },
+    { "path": "../../scanners/smart-contract" }
+  ]
+}

@@ -21,12 +21,7 @@
   "dependencies": {
     "@dl-sentinel/core": "*",
     "@dl-sentinel/engine": "*",
-    "@dl-sentinel/reporting": "*",
-    "@dl-sentinel/scanner-api": "*",
-    "@dl-sentinel/scanner-dependencies": "*",
-    "@dl-sentinel/scanner-infra": "*",
-    "@dl-sentinel/scanner-secrets": "*",
-    "@dl-sentinel/scanner-smart-contract": "*",
-    "@dl-sentinel/scanner-source": "*"
+    "@dl-sentinel/preset": "*",
+    "@dl-sentinel/reporting": "*"
   }
 }
