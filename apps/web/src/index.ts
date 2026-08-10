@@ -1,3 +1,7 @@
-// DL Sentinel dashboard package. Implemented on feature/sentinel-dashboard.
-// Exports getWebRoot() so the API server can serve the static dashboard.
-export {};
+// DL Sentinel dashboard package. Serves a dependency-free static SPA (see
+// apps/web/public/) that the API server mounts at "/" via getWebRoot().
+export * from './web-root.js';
+export * from './types.js';
+export * from './severity.js';
+export * from './html.js';
+export * from './stats.js';
