@@ -38,6 +38,13 @@ the server at arbitrary filesystem locations.
 | `GET` | `/api/findings` | Get findings across completed scans; filterable by severity and scanner. |
 | `GET` | `/api/rules` | List rules from registered scanners — the same data `sentinel rules` prints. See [Rules](rules.md#listing-rules-sentinel-rules). |
 | `GET` | `/api/reports/:id` | Get a rendered report for a completed scan. `?format=json\|markdown\|sarif` selects the format. `409` while it is still queued/running. |
+| `POST` | `/api/schedules` | Create a scheduled scan. Body: `{ "path": "/abs/dir", "intervalMs": 3600000, "scanners": ["secrets", ...]? }`. Same validation as `POST /api/scans`, plus `intervalMs` must be a number `>= 60000` (60s). Returns `201` with the schedule record. See [Scheduled scans](#scheduled-scans). |
+| `GET` | `/api/schedules` | List schedule records (newest first). |
+| `GET` | `/api/schedules/:id` | Get one schedule record. `404` if unknown. |
+| `PATCH` | `/api/schedules/:id` | Update a schedule. Body: `{ "enabled"?: boolean, "intervalMs"?: number }`. Returns `200` with the updated record; `404` if unknown. Changing `intervalMs` recomputes `nextRunAt` from now. |
+| `DELETE` | `/api/schedules/:id` | Delete a schedule. Returns `204`; `404` if unknown. |
+| `GET` | `/api/history` | Chronological (oldest-first) list of completed scans, reduced to their outcome. Query: `?target=<path>` filters to one scanned path; `?limit=<n>` keeps the most recent `n` (still oldest-first). See [Response shapes](#response-shapes). |
+| `GET` | `/api/trends` | Per-scan severity time series for charting, oldest-first. Query: `?target=<path>` filters to one scanned path. Derived from stored records — scans are never recomputed. |
 | `GET` | `/health` | Health check. |
 
 ## Response shapes
@@ -62,6 +69,18 @@ the server at arbitrary filesystem locations.
 - `GET /api/reports/:id?format=json|markdown|sarif` renders a completed scan's `Report` through
   the same `renderReport(report, format)` the CLI uses; default `json`; `404` if unknown, `409`
   if not yet completed.
+- `POST /api/schedules` returns `201` with the full schedule record: `{ id, path, scanners?,
+  intervalMs, enabled, createdAt, lastRunAt?, lastScanId?, nextRunAt }`. `path` is the canonical
+  (realpath'd) target; `enabled` defaults to `true`; `nextRunAt` is `createdAt + intervalMs`.
+  `GET /api/schedules` returns an array of these (newest first); `GET /api/schedules/:id` returns
+  one; `PATCH` returns the updated record; `DELETE` returns `204` with an empty body.
+- `GET /api/history` returns an array of `{ id, path, project, finishedAt, stats, findingCount }`,
+  oldest-first, over completed scans only. `?target=` filters by exact scanned path; `?limit=<n>`
+  (a positive integer, else `400`) keeps the most recent `n` entries in that same order.
+- `GET /api/trends` returns an array of `{ finishedAt, critical, high, medium, low, info, total }`,
+  oldest-first, over completed scans only (optionally filtered by `?target=`). `total` is the sum
+  of the severity buckets. Both endpoints derive purely from stored records; they never re-run a
+  scan.
 
 ## Asynchronous scans
 
@@ -89,6 +108,24 @@ Records and their status are persisted under `SENTINEL_DATA_DIR`, so they surviv
 On startup the server reconciles persisted state after a possible unclean shutdown: a record
 left `running` is marked `failed` with the message `interrupted by restart`, and a record still
 `queued` is re-enqueued so the worker resumes it. Completed and failed records are never re-run.
+
+## Scheduled scans
+
+A schedule enqueues a scan for a fixed `path` every `intervalMs` while `enabled`. Create one with
+`POST /api/schedules`; it validates exactly like `POST /api/scans` (path within
+`SENTINEL_SCAN_ROOT`, known scanner ids) and additionally requires `intervalMs` to be a number at
+or above `60000` (60 seconds) — a smaller or non-numeric value is a `400`.
+
+A background scheduler wakes on a fixed interval (`SENTINEL_SCHEDULER_INTERVAL_MS`, default
+`15000`) and, for each enabled schedule whose `nextRunAt` has passed, enqueues a scan through the
+same worker pool as ad-hoc scans (it never runs a scan itself) and advances `nextRunAt` a full
+interval past now. The scheduled run appears in `GET /api/scans` like any other; the schedule's
+`lastRunAt`/`lastScanId` point at the most recent one.
+
+Schedules are persisted under `SENTINEL_DATA_DIR` and resume across a restart. On reload
+`nextRunAt` is recomputed: a schedule that came due during downtime is set to run once promptly on
+the next tick (not once per missed interval). A scheduling error never crashes the server — it is
+logged and the tick moves on.
 
 ## Errors
 

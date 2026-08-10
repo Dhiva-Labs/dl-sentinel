@@ -249,12 +249,24 @@ is still queued/running. Jobs and their status survive restart via the existing 
 a job left `running` at shutdown is marked `failed` (interrupted) on reload. This keeps the
 server responsive and is the substrate the scheduled-scan feature builds on.
 
+**Scheduled scans and trends.** Schedules (`{ id, path, scanners?, intervalMs, enabled,
+nextRunAt, ... }`) are persisted alongside scan records. A background scheduler enqueues a scan
+through the same worker pool for each enabled, due schedule and advances `nextRunAt`; it delegates
+to the queue rather than running scans itself, resumes across restart (recomputing `nextRunAt` so
+an overdue schedule runs once, not N times), and never lets a scheduling error crash the server.
+`GET /api/history` and `GET /api/trends` derive read-only history and per-severity time series
+from stored completed scans. Endpoints and shapes are in `docs/api.md`.
+
 ### Dashboard (`apps/web`)
 
 Static, dependency-free HTML/CSS/JS. Pages: Dashboard (severity overview, recent scans,
-top findings), Scans, Findings (detail: rule, severity, confidence, file/line, sanitized
-evidence, remediation, references), Rules, Reports, Settings (API token entry, stored in
-browser localStorage). Talks only to the API above.
+top findings, findings-trend sparkline), Scans (status column; trigger a scan and poll it to
+completion), Schedules (create/enable/disable/delete), Findings (detail: rule, severity,
+confidence, file/line, sanitized evidence, remediation, references), Trends (dependency-free SVG
+severity-over-time chart), Rules, Reports, Settings (API token entry, stored in browser
+localStorage). Scan detail follows the async lifecycle — it shows queued/running status, polls
+until terminal, then loads the report, and handles a `409` from report endpoints gracefully. Talks
+only to the API above.
 
 ## Configuration (`sentinel.yml`)
 
