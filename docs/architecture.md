@@ -257,6 +257,42 @@ an overdue schedule runs once, not N times), and never lets a scheduling error c
 `GET /api/history` and `GET /api/trends` derive read-only history and per-severity time series
 from stored completed scans. Endpoints and shapes are in `docs/api.md`.
 
+**Users and RBAC.** Authentication stays token-only — there are no passwords anywhere in the
+system. The bootstrap token (`SENTINEL_API_TOKEN`, or the generated one) is the **root admin**
+and always works, which keeps every existing single-token deployment valid unchanged. Admins
+may additionally create users, each with their own bearer token and a role:
+
+| Role     | May do |
+| -------- | ------ |
+| viewer   | All `GET` endpoints (scans, findings, reports, rules, history, trends, schedules, me) |
+| operator | viewer + `POST /api/scans` |
+| admin    | everything: schedules CRUD, notification config, `/api/users` management |
+
+User records `{ id, name, role, tokenHash, createdAt, disabled? }` persist under the data dir;
+tokens are generated server-side (`crypto.randomBytes`), returned exactly once in the
+create/rotate response, and stored only as SHA-256 hashes (lookup compares hashes with
+`timingSafeEqual`). Endpoints (admin only): `POST /api/users {name, role}` → `201` incl. the
+one-time `token`; `GET /api/users` (never returns tokens or hashes); `PATCH /api/users/:id
+{role?, disabled?}`; `DELETE /api/users/:id`; `POST /api/users/:id/rotate` → new one-time
+token. `GET /api/me` → `{ name, role }` for any authenticated caller (the dashboard uses it to
+role-gate its UI). Insufficient role → `403 { error: { code: "forbidden" } }` (401 remains for
+missing/invalid tokens). The audit log records the acting user id (`root` for the bootstrap
+token). Disabled users authenticate as invalid (401).
+
+**Notifications.** Optional outbound notifications on scan lifecycle events — the ONLY other
+outbound network path in the system besides the opt-in OSV data source, and off unless
+configured. Admin-only CRUD at `/api/notifications`: channel records
+`{ id, type: 'webhook' | 'slack', url, events, enabled, secret?, createdAt, lastError? }` with
+`events ⊆ { scan.completed, scan.failed, policy.violated, schedule.failed }`. On each event the
+server POSTs: for `webhook`, a JSON payload `{ event, scanId, path, project, stats,
+findingCount, finishedAt }` with header `X-Sentinel-Signature: sha256=<hex hmac(secret, body)>`
+when a secret is set; for `slack`, an incoming-webhook `{ text }` summary (severity counts —
+findings are already redacted, and no evidence text is ever included). Deliveries use an
+injectable fetch with a 5 s timeout, run strictly after job completion off the queue's critical
+path, and a failed delivery only logs and records `lastError` — it never fails or blocks a
+scan. `policy.violated` fires when a completed report has findings at `policy.failOn`
+severities. Zero configured channels ⇒ zero outbound requests, preserving standalone-by-default.
+
 ### Dashboard (`apps/web`)
 
 Static, dependency-free HTML/CSS/JS. Pages: Dashboard (severity overview, recent scans,
@@ -300,6 +336,12 @@ Unknown keys produce warnings, not errors. Defaults come from `defaultConfig()` 
 | I      | infra/docker   | I001    |
 | A      | api            | A001    |
 | SC     | smart-contract | SC001   |
+
+**Compliance mapping.** `RuleMeta.compliance` optionally maps a rule to established frameworks
+(`cwe: ['CWE-798']`, `owasp: ['A07:2021']` — OWASP Top 10 2021 ids). The binding rule: only
+canonical, well-established mappings are recorded; an uncertain mapping is omitted, never
+guessed. The mapping is rule-level metadata surfaced by `sentinel rules`, `GET /api/rules`,
+and the dashboard's Rules view — findings themselves are unchanged.
 
 ## Security posture (binding)
 

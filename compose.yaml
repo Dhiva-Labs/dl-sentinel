@@ -1,0 +1,28 @@
+# DL Sentinel self-hosted deployment.
+#   SENTINEL_API_TOKEN=your-token docker compose up -d
+# Mount the repositories you want scannable (read-only) under /scans.
+# This file passes DL Sentinel's own infra scanner: no privileged mode, no
+# host networking, resource limits set, read-only scan mounts.
+
+services:
+  sentinel:
+    build: .
+    ports:
+      - '8752:8752'
+    environment:
+      SENTINEL_API_TOKEN: ${SENTINEL_API_TOKEN:?set SENTINEL_API_TOKEN in the environment}
+      SENTINEL_SCAN_ROOT: /scans
+      SENTINEL_DATA_DIR: /data
+    volumes:
+      - sentinel-data:/data
+      # Example scan target (read-only). Add one line per repository root:
+      # - /home/you/projects:/scans/projects:ro
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+
+volumes:
+  sentinel-data:

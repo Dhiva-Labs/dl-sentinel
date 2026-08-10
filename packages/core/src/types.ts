@@ -67,6 +67,18 @@ export interface RuleMeta {
   description: string;
   recommendation: string;
   references?: string[];
+  /**
+   * Optional mapping to established compliance frameworks. Only well-known,
+   * canonical mappings belong here (e.g. cwe: ['CWE-798'], owasp:
+   * ['A07:2021']); when a mapping is uncertain the field is omitted — it is
+   * never guessed.
+   */
+  compliance?: {
+    /** CWE identifiers, e.g. "CWE-798". */
+    cwe?: string[];
+    /** OWASP Top 10 (2021) identifiers, e.g. "A05:2021". */
+    owasp?: string[];
+  };
 }
 
 /** A file discovered by the engine and offered to scanners. */

@@ -98,6 +98,7 @@ See [docs/architecture.md](docs/architecture.md) for the full design and data fl
 ## Documentation
 
 - [Getting started](docs/getting-started.md)
+- [Deployment](docs/deployment.md)
 - [Scanners](docs/scanners.md)
 - [Rules](docs/rules.md)
 - [Configuration](docs/configuration.md)

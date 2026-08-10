@@ -1,0 +1,12 @@
+.git
+node_modules
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+.dl-sentinel
+coverage
+*.log
+.env
+.env.*
+.claude
+CLAUDE.md
