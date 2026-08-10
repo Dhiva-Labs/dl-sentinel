@@ -1,0 +1,12 @@
+# Fixture compose file with no known insecure patterns; a negative control
+# for DL Sentinel scanner tests. Not run by anything.
+
+services:
+  app:
+    build: .
+    image: clean-app-fixture:1.0.0
+    read_only: true
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    ports:
+      - '8080:8080'

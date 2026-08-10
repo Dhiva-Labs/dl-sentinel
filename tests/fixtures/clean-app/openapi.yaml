@@ -1,0 +1,40 @@
+# Fixture OpenAPI spec with no known insecure patterns; a negative control
+# for DL Sentinel scanner tests. Describes no real service.
+
+openapi: 3.0.3
+info:
+  title: Clean App Fixture API
+  version: 1.0.0
+servers:
+  - url: https://api.internal.example
+security:
+  - BearerAuth: []
+paths:
+  /users:
+    get:
+      summary: List users
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: OK
+  /users/{id}:
+    delete:
+      summary: Delete a user
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

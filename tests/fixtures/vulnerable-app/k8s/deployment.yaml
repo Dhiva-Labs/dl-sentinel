@@ -1,0 +1,30 @@
+# Deliberately insecure fixture k8s manifest for DL Sentinel scanner tests.
+# Not applied to any cluster; a pattern target only.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vulnerable-app-fixture
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vulnerable-app-fixture
+  template:
+    metadata:
+      labels:
+        app: vulnerable-app-fixture
+    spec:
+      hostNetwork: true
+      containers:
+        - name: app
+          image: vulnerable-app-fixture:latest
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: host-root
+              mountPath: /host-root
+      volumes:
+        - name: host-root
+          hostPath:
+            path: /

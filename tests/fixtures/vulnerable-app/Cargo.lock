@@ -1,0 +1,12 @@
+# This file is a fixture stub shaped like Cargo's lockfile format.
+# It is not a real, resolvable dependency graph.
+version = 3
+
+[[package]]
+name = "vulnerable-app-fixture"
+version = "0.1.0"
+
+[[package]]
+name = "time"
+version = "0.1.42"
+source = "registry+https://github.com/rust-lang/crates.io-index"
