@@ -1,0 +1,18 @@
+openapi: 3.0.3
+info:
+  title: A001 Clean Fixture
+  version: 1.0.0
+security:
+  - BearerAuth: []
+paths:
+  /widgets:
+    get:
+      summary: List widgets
+      responses:
+        '200':
+          description: OK
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer

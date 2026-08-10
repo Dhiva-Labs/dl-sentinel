@@ -1,0 +1,20 @@
+{
+  "swagger": "2.0",
+  "info": { "title": "A008 Swagger OAuth2 Implicit", "version": "1.0.0" },
+  "paths": {
+    "/data": {
+      "get": {
+        "security": [{ "OAuth2Implicit": [] }],
+        "responses": { "200": { "description": "OK" } }
+      }
+    }
+  },
+  "securityDefinitions": {
+    "OAuth2Implicit": {
+      "type": "oauth2",
+      "flow": "implicit",
+      "authorizationUrl": "https://auth.example.com/authorize",
+      "scopes": {}
+    }
+  }
+}

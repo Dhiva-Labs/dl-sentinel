@@ -1,0 +1,10 @@
+# A generic YAML config file that happens to match the scanner's generic
+# **/*.{yml,yaml,json} glob but is not an API definition. Must be silently
+# ignored (no warning, no findings).
+appName: widget-service
+logging:
+  level: info
+  destinations:
+    - stdout
+featureFlags:
+  newCheckout: false

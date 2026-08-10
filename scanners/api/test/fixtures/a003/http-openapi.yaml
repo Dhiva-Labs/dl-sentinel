@@ -1,0 +1,12 @@
+openapi: 3.0.3
+info:
+  title: A003 Http Fixture
+  version: 1.0.0
+servers:
+  - url: http://api.example.com
+paths:
+  /ping:
+    get:
+      responses:
+        '200':
+          description: OK

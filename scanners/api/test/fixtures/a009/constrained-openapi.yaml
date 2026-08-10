@@ -1,0 +1,35 @@
+openapi: 3.0.3
+info:
+  title: A009 Constrained Fixture
+  version: 1.0.0
+paths:
+  /signup:
+    post:
+      parameters:
+        - name: referrer
+          in: query
+          schema:
+            type: string
+            maxLength: 100
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                nickname:
+                  type: string
+                  pattern: '^[a-zA-Z0-9_]{3,20}$'
+                age:
+                  type: integer
+                  minimum: 0
+                  maximum: 150
+                plan:
+                  type: string
+                  enum: [free, pro, enterprise]
+      responses:
+        '201':
+          description: Created

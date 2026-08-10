@@ -1,0 +1,17 @@
+openapi: 3.0.3
+info:
+  title: A004 Basic Fixture
+  version: 1.0.0
+paths:
+  /secure:
+    get:
+      security:
+        - BasicAuth: []
+      responses:
+        '200':
+          description: OK
+components:
+  securitySchemes:
+    BasicAuth:
+      type: http
+      scheme: basic

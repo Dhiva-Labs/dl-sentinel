@@ -1,0 +1,20 @@
+openapi: 3.0.3
+info:
+  title: A008 OAuth2 Implicit Fixture
+  version: 1.0.0
+paths:
+  /data:
+    get:
+      security:
+        - OAuth2Implicit: []
+      responses:
+        '200':
+          description: OK
+components:
+  securitySchemes:
+    OAuth2Implicit:
+      type: oauth2
+      flows:
+        implicit:
+          authorizationUrl: https://auth.example.com/authorize
+          scopes: {}

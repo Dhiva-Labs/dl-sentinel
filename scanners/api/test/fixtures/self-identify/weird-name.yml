@@ -1,0 +1,12 @@
+# Does not match any of the explicit openapi/swagger/api-spec naming patterns,
+# but self-identifies via the top-level `openapi:` key and must still be scanned.
+openapi: 3.0.3
+info:
+  title: Self Identifying Fixture
+  version: 1.0.0
+paths:
+  /ping:
+    get:
+      responses:
+        '200':
+          description: OK

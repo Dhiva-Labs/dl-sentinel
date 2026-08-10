@@ -1,0 +1,15 @@
+{
+  "swagger": "2.0",
+  "info": { "title": "A004 Swagger Basic", "version": "1.0.0" },
+  "paths": {
+    "/secure": {
+      "get": {
+        "security": [{ "BasicAuth": [] }],
+        "responses": { "200": { "description": "OK" } }
+      }
+    }
+  },
+  "securityDefinitions": {
+    "BasicAuth": { "type": "basic" }
+  }
+}

@@ -1,0 +1,11 @@
+openapi: 3.0.3
+info:
+  title: A001 No Schemes Fixture
+  version: 1.0.0
+paths:
+  /ping:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: OK
