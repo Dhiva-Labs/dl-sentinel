@@ -1,0 +1,11 @@
+# I012 positive: short-syntax host mounts across every severity tier —
+# the Docker socket (critical), host root and /etc (high), and another host
+# path outside a named volume (medium).
+services:
+  app:
+    image: example/app:1.0.0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /:/host-root
+      - /etc:/host-etc:ro
+      - /home/user/data:/data

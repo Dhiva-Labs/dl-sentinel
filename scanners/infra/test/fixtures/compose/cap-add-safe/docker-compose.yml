@@ -1,0 +1,12 @@
+# I013 negative: added capabilities outside the dangerous set.
+services:
+  app:
+    image: example/app:1.0.0
+    cap_add:
+      - NET_RAW
+      - CHOWN
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M

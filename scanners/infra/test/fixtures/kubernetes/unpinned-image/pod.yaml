@@ -1,0 +1,27 @@
+# I027 positive: an explicit :latest tag and a missing tag, otherwise clean.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: unpinned-image-example
+spec:
+  containers:
+    - name: latest-tag
+      image: example/app:latest
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+      resources:
+        limits:
+          cpu: '250m'
+          memory: '256Mi'
+    - name: no-tag
+      image: example/app
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false
+      resources:
+        limits:
+          cpu: '250m'
+          memory: '256Mi'

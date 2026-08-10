@@ -1,0 +1,22 @@
+# I014 negative: interpolation reference, placeholder value, and a
+# passthrough var (no literal value at all).
+services:
+  api:
+    image: example/api:1.0.0
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD}
+      API_TOKEN: changeme
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+  worker:
+    image: example/worker:1.0.0
+    environment:
+      - PASSTHROUGH_SECRET
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M

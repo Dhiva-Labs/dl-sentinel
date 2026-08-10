@@ -1,0 +1,12 @@
+# I015: one service defines deploy.resources.limits (negative), the other
+# does not (positive).
+services:
+  limited:
+    image: example/app:1.0.0
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+  unlimited:
+    image: example/app:1.0.0

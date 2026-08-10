@@ -1,0 +1,12 @@
+# I024 positive: allowPrivilegeEscalation is not explicitly set to false.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: privilege-escalation-example
+spec:
+  containers:
+    - name: app
+      image: example/app:1.0.0
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000

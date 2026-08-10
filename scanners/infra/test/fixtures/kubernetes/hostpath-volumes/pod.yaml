@@ -1,0 +1,20 @@
+# I022 positive: hostPath volumes across every severity tier — the Docker
+# socket (critical), host root (high), and another host path (medium).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hostpath-example
+spec:
+  containers:
+    - name: app
+      image: example/app:1.0.0
+  volumes:
+    - name: docker-sock
+      hostPath:
+        path: /var/run/docker.sock
+    - name: host-root
+      hostPath:
+        path: /
+    - name: other
+      hostPath:
+        path: /opt/data

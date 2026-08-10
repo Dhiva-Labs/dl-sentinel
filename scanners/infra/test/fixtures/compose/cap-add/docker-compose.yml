@@ -1,0 +1,9 @@
+# I013 positive: SYS_ADMIN (critical) and NET_ADMIN (high). NET_RAW is
+# outside both tiers and must not be flagged.
+services:
+  app:
+    image: example/app:1.0.0
+    cap_add:
+      - SYS_ADMIN
+      - NET_ADMIN
+      - NET_RAW

@@ -1,0 +1,16 @@
+# I025 positive: SYS_ADMIN (critical), NET_ADMIN (high), and NET_RAW (low,
+# unlike compose's I013 which has no low tier).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: added-capabilities-example
+spec:
+  containers:
+    - name: app
+      image: example/app:1.0.0
+      securityContext:
+        capabilities:
+          add:
+            - SYS_ADMIN
+            - NET_ADMIN
+            - NET_RAW

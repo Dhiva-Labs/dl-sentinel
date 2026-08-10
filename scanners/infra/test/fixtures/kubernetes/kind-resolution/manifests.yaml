@@ -1,0 +1,128 @@
+# Multi-document stream exercising kind resolution: Pod, Deployment,
+# StatefulSet, DaemonSet, Job, and CronJob each embed a pod spec that must
+# be found and scanned (including a Deployment initContainer, deliberately
+# left with an untagged image to prove initContainers are scanned too).
+# Service and ConfigMap have no pod spec and must produce no findings
+# without crashing.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-example
+spec:
+  containers:
+    - name: app
+      image: example/app@sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+      securityContext:
+        privileged: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deployment-example
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: deployment-example
+  template:
+    metadata:
+      labels:
+        app: deployment-example
+    spec:
+      initContainers:
+        - name: init
+          image: example/init
+      containers:
+        - name: app
+          image: example/app@sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+          securityContext:
+            privileged: true
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: statefulset-example
+spec:
+  serviceName: statefulset-example
+  replicas: 1
+  selector:
+    matchLabels:
+      app: statefulset-example
+  template:
+    metadata:
+      labels:
+        app: statefulset-example
+    spec:
+      containers:
+        - name: app
+          image: example/app@sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+          securityContext:
+            privileged: true
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: daemonset-example
+spec:
+  selector:
+    matchLabels:
+      app: daemonset-example
+  template:
+    metadata:
+      labels:
+        app: daemonset-example
+    spec:
+      containers:
+        - name: app
+          image: example/app@sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+          securityContext:
+            privileged: true
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: job-example
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          image: example/app@sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+          securityContext:
+            privileged: true
+      restartPolicy: Never
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cronjob-example
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: app
+              image: example/app@sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+              securityContext:
+                privileged: true
+          restartPolicy: Never
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-example
+spec:
+  selector:
+    app: pod-example
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: configmap-example
+data:
+  key: value

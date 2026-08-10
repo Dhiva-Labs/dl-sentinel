@@ -1,0 +1,13 @@
+# I026 positive, otherwise clean.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: no-resource-limits-example
+spec:
+  containers:
+    - name: app
+      image: example/app:1.0.0
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        allowPrivilegeEscalation: false

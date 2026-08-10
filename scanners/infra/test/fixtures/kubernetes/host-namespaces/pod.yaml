@@ -1,0 +1,12 @@
+# I021 positive: all three host namespace flags enabled.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: host-namespaces-example
+spec:
+  hostNetwork: true
+  hostPID: true
+  hostIPC: true
+  containers:
+    - name: app
+      image: example/app:1.0.0

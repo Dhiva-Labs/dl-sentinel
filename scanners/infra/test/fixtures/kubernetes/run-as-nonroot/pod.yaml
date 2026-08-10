@@ -1,0 +1,17 @@
+# I023 negative: one container relies on the pod-level runAsNonRoot, the
+# other sets its own — both are valid ways to satisfy the rule.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: run-as-nonroot-example
+spec:
+  securityContext:
+    runAsNonRoot: true
+  containers:
+    - name: relies-on-pod-level
+      image: example/app:1.0.0
+    - name: sets-own-securitycontext
+      image: example/app:1.0.0
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
