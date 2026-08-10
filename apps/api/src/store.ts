@@ -1,9 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { appendFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Finding } from '@dl-sentinel/core';
-import type { AuditEntry, ScanRecord, ScanStatus, ScanSummary, ServerLogger } from './types.js';
+import type {
+  AuditEntry,
+  ScanRecord,
+  ScanStatus,
+  ScanSummary,
+  ScheduleRecord,
+  ServerLogger,
+} from './types.js';
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -47,15 +54,21 @@ function toSummary(scan: ScanRecord): ScanSummary {
  */
 export class ReportStore {
   private readonly scans = new Map<string, ScanRecord>();
+  private readonly schedules = new Map<string, ScheduleRecord>();
   private readonly scansDir: string;
+  private readonly schedulesDir: string;
   private readonly auditPath: string;
   private readonly logger: ServerLogger;
+  /** In-flight async writes (audit-log appends), so shutdown can await them. */
+  private readonly pendingWrites = new Set<Promise<unknown>>();
 
   constructor(dataDir: string, logger: ServerLogger) {
     this.scansDir = path.join(dataDir, 'scans');
+    this.schedulesDir = path.join(dataDir, 'schedules');
     this.auditPath = path.join(dataDir, 'audit.log');
     this.logger = logger;
     this.loadExisting();
+    this.loadSchedules();
   }
 
   private loadExisting(): void {
@@ -137,6 +150,27 @@ export class ReportStore {
   }
 
   /**
+   * Completed scans (those with a report and a `finishedAt`), oldest first, so
+   * history and trend series read left-to-right in time. Ordering is
+   * deterministic — ties on `finishedAt` break by id. When `target` is given,
+   * only scans of that exact (canonical) path are returned.
+   */
+  completedScans(target?: string): ScanRecord[] {
+    return this.list()
+      .filter(
+        (scan) =>
+          scan.status === 'completed' &&
+          scan.report !== undefined &&
+          scan.finishedAt !== undefined &&
+          (target === undefined || scan.path === target),
+      )
+      .sort((a, b) => {
+        const byTime = (a.finishedAt ?? '').localeCompare(b.finishedAt ?? '');
+        return byTime !== 0 ? byTime : a.id.localeCompare(b.id);
+      });
+  }
+
+  /**
    * Reconcile persisted state on startup after a possible unclean shutdown. Any
    * record left `running` is failed (nothing was actually executing in this fresh
    * process). Returns the ids of records still `queued` so the caller can
@@ -159,12 +193,130 @@ export class ReportStore {
     return requeue;
   }
 
-  /** Append one audit record. Failures are logged, never thrown. */
-  async audit(entry: AuditEntry): Promise<void> {
+  // -------------------------------------------------------------------------
+  // Schedules — persisted like scans, under `<dataDir>/schedules/<id>.json`.
+  // -------------------------------------------------------------------------
+
+  private loadSchedules(): void {
+    mkdirSync(this.schedulesDir, { recursive: true });
+    let names: string[];
     try {
-      await appendFile(this.auditPath, `${JSON.stringify(entry)}\n`, 'utf8');
+      names = readdirSync(this.schedulesDir);
     } catch (error) {
-      this.logger.warn(`Failed to append audit log: ${errorMessage(error)}`);
+      this.logger.warn(`Could not read schedules directory: ${errorMessage(error)}`);
+      return;
     }
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue;
+      try {
+        const parsed = JSON.parse(
+          readFileSync(path.join(this.schedulesDir, name), 'utf8'),
+        ) as ScheduleRecord;
+        if (
+          parsed !== null &&
+          typeof parsed === 'object' &&
+          typeof parsed.id === 'string' &&
+          typeof parsed.path === 'string' &&
+          typeof parsed.intervalMs === 'number' &&
+          typeof parsed.enabled === 'boolean' &&
+          typeof parsed.createdAt === 'string' &&
+          typeof parsed.nextRunAt === 'string'
+        ) {
+          this.schedules.set(parsed.id, parsed);
+        }
+      } catch (error) {
+        this.logger.warn(`Skipping unreadable schedule file ${name}: ${errorMessage(error)}`);
+      }
+    }
+  }
+
+  private persistSchedule(record: ScheduleRecord): void {
+    try {
+      writeFileSync(
+        path.join(this.schedulesDir, `${record.id}.json`),
+        JSON.stringify(record, null, 2),
+      );
+    } catch (error) {
+      this.logger.error(`Failed to persist schedule ${record.id}: ${errorMessage(error)}`);
+    }
+  }
+
+  /** Create and persist a new schedule (enabled by default). */
+  createSchedule(input: {
+    path: string;
+    scanners?: string[];
+    intervalMs: number;
+    nextRunAt: string;
+    enabled?: boolean;
+    createdAt?: string;
+  }): ScheduleRecord {
+    const record: ScheduleRecord = {
+      id: randomUUID(),
+      path: input.path,
+      intervalMs: input.intervalMs,
+      enabled: input.enabled ?? true,
+      createdAt: input.createdAt ?? new Date().toISOString(),
+      nextRunAt: input.nextRunAt,
+    };
+    if (input.scanners !== undefined) record.scanners = input.scanners;
+    this.schedules.set(record.id, record);
+    this.persistSchedule(record);
+    return record;
+  }
+
+  /** Replace a schedule in memory and write it through to disk. */
+  updateSchedule(record: ScheduleRecord): void {
+    this.schedules.set(record.id, record);
+    this.persistSchedule(record);
+  }
+
+  getSchedule(id: string): ScheduleRecord | undefined {
+    return this.schedules.get(id);
+  }
+
+  /** All schedules, newest first (by creation time). */
+  listSchedules(): ScheduleRecord[] {
+    return [...this.schedules.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  /** Remove a schedule and its file. Returns whether it existed. */
+  deleteSchedule(id: string): boolean {
+    if (!this.schedules.delete(id)) return false;
+    try {
+      rmSync(path.join(this.schedulesDir, `${id}.json`), { force: true });
+    } catch (error) {
+      this.logger.warn(`Failed to remove schedule file ${id}: ${errorMessage(error)}`);
+    }
+    return true;
+  }
+
+  /**
+   * Append one audit record. Failures are logged, never thrown. The write is
+   * tracked in {@link pendingWrites} so a clean shutdown can await it — callers
+   * `void` this promise, so without tracking the append could still be in flight
+   * when the data directory is removed, racing the append against teardown.
+   */
+  async audit(entry: AuditEntry): Promise<void> {
+    const write = appendFile(this.auditPath, `${JSON.stringify(entry)}\n`, 'utf8').catch(
+      (error) => {
+        this.logger.warn(`Failed to append audit log: ${errorMessage(error)}`);
+      },
+    );
+    this.pendingWrites.add(write);
+    const forget = (): void => {
+      this.pendingWrites.delete(write);
+    };
+    write.then(forget, forget);
+    await write;
+  }
+
+  /**
+   * Resolve once every in-flight async write has settled. Synchronous writes
+   * (scan/schedule persistence) already complete before their method returns;
+   * this covers the fire-and-forget audit appends. Used for deterministic
+   * shutdown so teardown never races a pending write against directory removal.
+   */
+  async flushWrites(): Promise<void> {
+    await Promise.allSettled([...this.pendingWrites]);
   }
 }

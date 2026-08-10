@@ -87,6 +87,12 @@ export function sendText(
   res.end(body);
 }
 
+/** Send a 204 No Content response (used for successful DELETEs). */
+export function sendNoContent(res: ServerResponse, headers: Record<string, string> = {}): void {
+  res.writeHead(204, { ...SECURITY_HEADERS, ...headers });
+  res.end();
+}
+
 /** Send the structured error envelope for an {@link HttpError}. */
 export function sendHttpError(res: ServerResponse, error: HttpError): void {
   sendJson(

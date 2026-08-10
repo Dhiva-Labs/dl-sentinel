@@ -46,6 +46,19 @@ export interface ServerOptions {
    * `SENTINEL_SCAN_CONCURRENCY` (default: 2). Must be a positive integer.
    */
   scanConcurrency?: number;
+  /**
+   * How often the scheduler wakes to enqueue due schedules, in milliseconds.
+   * Overrides `SENTINEL_SCHEDULER_INTERVAL_MS` (default: 15000). The scheduler
+   * still only ever enqueues a schedule once its own `nextRunAt` has passed, so
+   * this is just the polling granularity, not the scan interval.
+   */
+  schedulerIntervalMs?: number;
+  /**
+   * Clock used by the scheduler and by schedule creation (`nextRunAt`
+   * arithmetic). Injectable so tests drive time deterministically instead of
+   * waiting for real timers. Defaults to `Date.now`.
+   */
+  now?: () => number;
   /** Logging sink. Defaults to a stderr logger. */
   logger?: ServerLogger;
   /** Engine factory, injectable for tests. Defaults to `createDefaultEngine`. */
@@ -70,6 +83,8 @@ export interface SentinelRuntime {
   port: number;
   /** Resolved background worker-pool concurrency (positive integer). */
   scanConcurrency: number;
+  /** Resolved scheduler polling interval in milliseconds (positive integer). */
+  schedulerIntervalMs: number;
 }
 
 /**
@@ -90,12 +105,32 @@ export interface ScanQueueControls {
 }
 
 /**
- * A Node HTTP server augmented with its resolved runtime configuration and the
- * background scan-queue controls.
+ * Control surface for the background scheduler, exposed on the server for tests
+ * and graceful shutdown. `tick()` runs one due-check pass (returning how many
+ * scans it enqueued) so tests can drive scheduling deterministically via an
+ * injected clock instead of waiting for the real timer.
+ */
+export interface SchedulerControls {
+  /**
+   * Enqueue a scan for every enabled schedule whose `nextRunAt` has passed,
+   * advancing each fired schedule's `nextRunAt`. Returns the number enqueued.
+   * Never throws: a single schedule's failure is logged and skipped.
+   */
+  tick(): number;
+  /** Begin the periodic timer (idempotent). Does not keep the process alive. */
+  start(): void;
+  /** Stop the periodic timer (idempotent). */
+  stop(): void;
+}
+
+/**
+ * A Node HTTP server augmented with its resolved runtime configuration, the
+ * background scan-queue controls, and the scheduler controls.
  */
 export type SentinelApiServer = Server & {
   readonly sentinel: SentinelRuntime;
   readonly queue: ScanQueueControls;
+  readonly scheduler: SchedulerControls;
 };
 
 /** Lifecycle status of a scan job. */
@@ -144,6 +179,59 @@ export interface ScanSummary {
   scannersRun?: string[];
   stats?: SeverityStats;
   findingCount?: number;
+}
+
+/**
+ * A persisted scheduled scan. The scheduler enqueues a scan for this `path`
+ * (through the same {@link ScanQueue} used by ad-hoc scans) every `intervalMs`
+ * while `enabled`, advancing `nextRunAt` each time it fires. Schedules are
+ * persisted under the data directory alongside scan records, so they resume
+ * across a restart.
+ */
+export interface ScheduleRecord {
+  id: string;
+  /** Canonical (realpath'd) target directory, validated at creation time. */
+  path: string;
+  /** Optional subset of scanner ids to run; absent means all registered. */
+  scanners?: string[];
+  /** Interval between runs in milliseconds (never below the enforced minimum). */
+  intervalMs: number;
+  /** Whether the scheduler considers this schedule when it ticks. */
+  enabled: boolean;
+  /** ISO timestamp the schedule was created. */
+  createdAt: string;
+  /** ISO timestamp the scheduler last enqueued a scan for it (absent until then). */
+  lastRunAt?: string;
+  /** Id of the last scan the scheduler enqueued for it (absent until then). */
+  lastScanId?: string;
+  /** ISO timestamp at/after which the next run is due. */
+  nextRunAt: string;
+}
+
+/** One entry of `GET /api/history`: a completed scan reduced to its outcome. */
+export interface HistoryEntry {
+  id: string;
+  /** Canonical target that was scanned. */
+  path: string;
+  /** Project name (report-derived). */
+  project: string;
+  /** ISO timestamp the scan completed. */
+  finishedAt: string;
+  stats: SeverityStats;
+  findingCount: number;
+}
+
+/** One point of `GET /api/trends`: severity counts at a completed scan's time. */
+export interface TrendPoint {
+  /** ISO timestamp the scan completed. */
+  finishedAt: string;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  info: number;
+  /** Total findings (sum of the severity buckets). */
+  total: number;
 }
 
 /** A rule as returned by `GET /api/rules`: rule metadata plus its owning scanner id. */
