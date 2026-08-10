@@ -1,0 +1,32 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@dl-sentinel/core": ["packages/core/src/index.ts"],
+      "@dl-sentinel/engine": ["packages/engine/src/index.ts"],
+      "@dl-sentinel/reporting": ["packages/reporting/src/index.ts"],
+      "@dl-sentinel/scanner-secrets": ["scanners/secrets/src/index.ts"],
+      "@dl-sentinel/scanner-dependencies": ["scanners/dependencies/src/index.ts"],
+      "@dl-sentinel/scanner-source": ["scanners/source/src/index.ts"],
+      "@dl-sentinel/scanner-infra": ["scanners/infra/src/index.ts"],
+      "@dl-sentinel/scanner-api": ["scanners/api/src/index.ts"],
+      "@dl-sentinel/scanner-smart-contract": ["scanners/smart-contract/src/index.ts"],
+      "@dl-sentinel/cli": ["apps/cli/src/index.ts"],
+      "@dl-sentinel/api-server": ["apps/api/src/index.ts"],
+      "@dl-sentinel/web": ["apps/web/src/index.ts"]
+    }
+  },
+  "include": [
+    "packages/*/test/**/*.ts",
+    "scanners/*/test/**/*.ts",
+    "apps/*/test/**/*.ts",
+    "tests/**/*.ts",
+    "vitest.config.ts"
+  ]
+}

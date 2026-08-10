@@ -11,8 +11,9 @@ npm install          # install workspace dependencies
 npm run build        # tsc -b: builds + typechecks every package (project references)
 npm test             # vitest run: all unit/integration tests
 npm run typecheck    # alias of build (composite projects emit while checking)
+npm run typecheck:tests  # strict-typecheck all test files (vitest alone does not)
 npm run format       # prettier --write
-npm run lint         # prettier --check + build
+npm run lint         # prettier --check + build + test typecheck
 ```
 
 Tests import workspace packages by name (`@dl-sentinel/core`) — the root vitest config

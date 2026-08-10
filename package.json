@@ -18,9 +18,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -b",
+    "typecheck:tests": "tsc -p tsconfig.tests.json",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "npm run format:check && npm run typecheck"
+    "lint": "npm run format:check && npm run typecheck && npm run typecheck:tests"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

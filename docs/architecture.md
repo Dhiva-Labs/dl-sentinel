@@ -121,6 +121,11 @@ export function createEngine(): ScanEngine;
 export function loadConfig(targetDir: string, configPath?: string): Promise<SentinelConfig>;
 ```
 
+Error-name conventions consumers may rely on: engine usage errors (nonexistent/invalid
+target, unknown scanner id in `options.scanners`, duplicate registration, missing explicit
+`configPath`) are thrown with `error.name === 'UsageError'`; cancellation rejects with
+`error.name === 'AbortError'`. The CLI maps UsageError → exit 64, AbortError/other → exit 2.
+
 Engine responsibilities: config loading/merging with defaults, file discovery honoring
 include/exclude and `maxFileSizeBytes`, binary detection (NUL-byte sniff of the first 8 KiB),
 never following symlinks, per-scanner file filtering via `supportedFiles`, concurrent
