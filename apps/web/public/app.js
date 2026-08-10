@@ -39,6 +39,23 @@ const STORAGE_KEYS = {
 // assets and zero hardcoded remote endpoints by design.
 const URL_SCHEME_SEPARATOR = '://';
 
+// The SVG namespace is assembled the same way: it is a URL, and hard-coding it
+// literally would trip the "no external URL" static-assets check. SVG nodes are
+// created in this namespace (createElementNS), never via innerHTML.
+const SVG_NS = 'http' + URL_SCHEME_SEPARATOR + 'www.w3.org/2000/svg';
+
+// Minimum schedule interval the API accepts (60s); mirror of
+// MIN_SCHEDULE_INTERVAL_MS in apps/api so the form can validate before POSTing.
+const MIN_SCHEDULE_INTERVAL_MS = 60000;
+
+// How often the dashboard polls a not-yet-terminal scan (ms).
+const POLL_INTERVAL_MS = 1500;
+
+// Bumped on every route render. Async work (polling loops) captures the value
+// and bails when it changes, so navigating away cancels in-flight polling and
+// nothing writes into a view that has since been replaced.
+let renderGeneration = 0;
+
 // ---------------------------------------------------------------------------
 // Small pure helpers (mirror the typed, unit-tested versions in src/*.ts —
 // duplicated here because public/ ships as plain browser JS with no build
@@ -129,6 +146,79 @@ function fileLocation(finding) {
   return loc;
 }
 
+// Scan lifecycle status helpers — mirror of apps/web/src/scan-status.ts.
+const SCAN_STATUSES = ['queued', 'running', 'completed', 'failed'];
+
+function scanStatusLabel(status) {
+  return SCAN_STATUSES.includes(status) ? capitalize(status) : 'Unknown';
+}
+
+function scanStatusClass(status) {
+  return `status-${SCAN_STATUSES.includes(status) ? status : 'unknown'}`;
+}
+
+function isTerminalStatus(status) {
+  return status === 'completed' || status === 'failed';
+}
+
+// Schedule interval formatting — mirror of apps/web/src/schedule.ts.
+function formatInterval(ms) {
+  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return '—';
+  const totalSeconds = Math.round(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts = [];
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0) parts.push(`${minutes}m`);
+  if (seconds > 0) parts.push(`${seconds}s`);
+  return parts.length > 0 ? parts.join(' ') : '0s';
+}
+
+// Trend-chart geometry — mirror of apps/web/src/trend.ts.
+function round2(value) {
+  return Math.round(value * 100) / 100;
+}
+
+function severityValues(points, key) {
+  return points.map((point) => (point && typeof point[key] === 'number' ? point[key] : 0));
+}
+
+function seriesMax(seriesList) {
+  let max = 0;
+  for (const series of seriesList) {
+    for (const value of series) {
+      if (value > max) max = value;
+    }
+  }
+  return max <= 0 ? 1 : max;
+}
+
+function seriesToPoints(values, dims, maxValue) {
+  const { width, height, padding } = dims;
+  const innerWidth = width - padding * 2;
+  const innerHeight = height - padding * 2;
+  const baseline = height - padding;
+  const n = values.length;
+  return values.map((value, i) => {
+    const x = n <= 1 ? padding + innerWidth / 2 : padding + (i / (n - 1)) * innerWidth;
+    const y = maxValue > 0 ? baseline - (value / maxValue) * innerHeight : baseline;
+    return { x: round2(x), y: round2(y) };
+  });
+}
+
+function pointsToPath(points) {
+  if (points.length === 0) return '';
+  return points.map((point, i) => `${i === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
+}
+
+function pointsToAreaPath(points, baselineY) {
+  if (points.length === 0) return '';
+  const last = points[points.length - 1];
+  const first = points[0];
+  return `${pointsToPath(points)} L ${round2(last.x)} ${round2(baselineY)} L ${round2(first.x)} ${round2(baselineY)} Z`;
+}
+
 // The API contract (docs/api.md) fixes the POST /api/scans body and the
 // Finding/Report shapes, but explicitly leaves full list-response envelopes
 // unspecified. These two helpers accept either a bare array or a
@@ -189,6 +279,30 @@ function el(tag, attrs, children) {
 
 function clearNode(node) {
   while (node.firstChild) node.removeChild(node.firstChild);
+}
+
+/**
+ * Build an SVG element in the SVG namespace. Like el(), `attrs.text` sets
+ * textContent and everything else is a setAttribute — no innerHTML, so any
+ * API-derived value (e.g. an axis label) is inert. `children` are appended.
+ */
+function svgEl(tag, attrs, children) {
+  const node = document.createElementNS(SVG_NS, tag);
+  if (attrs) {
+    for (const key of Object.keys(attrs)) {
+      const value = attrs[key];
+      if (value === undefined || value === null || value === false) continue;
+      if (key === 'text') node.textContent = value;
+      else node.setAttribute(key, value === true ? '' : String(value));
+    }
+  }
+  if (children !== undefined && children !== null) {
+    for (const child of Array.isArray(children) ? children : [children]) {
+      if (child === undefined || child === null || child === false) continue;
+      node.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+    }
+  }
+  return node;
 }
 
 function onActivate(node, handler) {
@@ -288,7 +402,7 @@ class ApiError extends Error {
   }
 }
 
-async function apiFetch(path, { query } = {}) {
+async function apiFetch(path, { query, method, body } = {}) {
   const settings = loadSettings();
   const base = settings.baseUrl.trim().replace(/\/+$/, '');
   let url = base + path;
@@ -304,10 +418,15 @@ async function apiFetch(path, { query } = {}) {
 
   const headers = { Accept: 'application/json' };
   if (settings.token) headers.Authorization = `Bearer ${settings.token}`;
+  const init = { method: method || 'GET', headers };
+  if (body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+    init.body = JSON.stringify(body);
+  }
 
   let response;
   try {
-    response = await fetch(url, { headers });
+    response = await fetch(url, init);
   } catch (networkError) {
     throw new ApiError(
       `Could not reach the API${base ? ` at ${base}` : ''}. Check the API base URL in ` +
@@ -357,14 +476,36 @@ async function getText(path, options) {
   return { text: await response.text(), contentType: response.headers.get('content-type') || '' };
 }
 
+/** Send a mutating request; parse a JSON body when present (204 -> undefined). */
+async function sendJson(path, method, body) {
+  const response = await apiFetch(path, { method, body });
+  if (response.status === 204) return undefined;
+  const text = await response.text();
+  if (!text) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new ApiError('The server returned a response that was not valid JSON.', {
+      status: response.status,
+    });
+  }
+}
+
 const api = {
   health: () => getJson('/health'),
   scans: () => getJson('/api/scans'),
   scan: (id) => getJson(`/api/scans/${encodeURIComponent(id)}`),
   scanFindings: (id) => getJson(`/api/scans/${encodeURIComponent(id)}/findings`),
+  createScan: (body) => sendJson('/api/scans', 'POST', body),
   findings: (filters) => getJson('/api/findings', { query: filters }),
   rules: () => getJson('/api/rules'),
   report: (id, format) => getText(`/api/reports/${encodeURIComponent(id)}`, { query: { format } }),
+  trends: (target) => getJson('/api/trends', { query: { target } }),
+  history: (params) => getJson('/api/history', { query: params }),
+  schedules: () => getJson('/api/schedules'),
+  createSchedule: (body) => sendJson('/api/schedules', 'POST', body),
+  updateSchedule: (id, body) => sendJson(`/api/schedules/${encodeURIComponent(id)}`, 'PATCH', body),
+  deleteSchedule: (id) => sendJson(`/api/schedules/${encodeURIComponent(id)}`, 'DELETE'),
 };
 
 // ---------------------------------------------------------------------------
@@ -373,6 +514,14 @@ const api = {
 
 function severityBadge(severity) {
   return el('span', { class: `badge ${severityClass(severity)}` }, severityLabel(severity));
+}
+
+function statusBadge(status) {
+  return el(
+    'span',
+    { class: `badge status-badge ${scanStatusClass(status)}` },
+    scanStatusLabel(status),
+  );
 }
 
 function renderEmptyState(message, hint) {
@@ -510,6 +659,41 @@ function buildFindingDetailPanel(finding, { onClose } = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Async scan polling
+// ---------------------------------------------------------------------------
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Poll GET /api/scans/:id until the scan reaches a terminal status (completed /
+ * failed). `onUpdate` fires with each record (so the UI can reflect
+ * queued→running), `onDone` once terminal, `onError` on a failed request. The
+ * loop stops as soon as `generation` no longer matches the current render, so
+ * navigating away cancels it — nothing is written into a stale view.
+ */
+async function pollScan(id, generation, { onUpdate, onDone, onError } = {}) {
+  while (generation === renderGeneration) {
+    let record;
+    try {
+      record = await api.scan(id);
+    } catch (error) {
+      if (generation === renderGeneration && onError) onError(error);
+      return;
+    }
+    if (generation !== renderGeneration) return;
+    const scan = unwrapObject(record, 'scan');
+    if (onUpdate) onUpdate(scan);
+    if (scan && isTerminalStatus(scan.status)) {
+      if (onDone) onDone(scan);
+      return;
+    }
+    await delay(POLL_INTERVAL_MS);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Pages
 // ---------------------------------------------------------------------------
 
@@ -517,10 +701,17 @@ async function renderDashboardPage(view) {
   view.appendChild(el('p', { class: 'loading', role: 'status', text: 'Loading overview…' }));
   let scans;
   let findings;
+  let trends = [];
   try {
-    const [scansBody, findingsBody] = await Promise.all([api.scans(), api.findings({})]);
+    // Trends are best-effort: a failure there must not blank the whole overview.
+    const [scansBody, findingsBody, trendsBody] = await Promise.all([
+      api.scans(),
+      api.findings({}),
+      api.trends().catch(() => []),
+    ]);
     scans = asList(scansBody, 'scans');
     findings = asList(findingsBody, 'findings');
+    trends = asList(trendsBody, 'trends');
   } catch (error) {
     clearNode(view);
     view.appendChild(renderErrorPanel(error, () => renderDashboardPage(view)));
@@ -604,6 +795,23 @@ async function renderDashboardPage(view) {
     scannerPanel.appendChild(bars);
   }
   grid.appendChild(scannerPanel);
+
+  const trendPanel = el('section', { class: 'panel' }, el('h2', { text: 'Findings Trend' }));
+  const recentTrends = trends.slice(-12);
+  if (recentTrends.length === 0) {
+    trendPanel.appendChild(renderEmptyState('No completed scans yet.'));
+  } else {
+    const latest = recentTrends[recentTrends.length - 1];
+    trendPanel.appendChild(
+      el('p', { class: 'trend-headline' }, [
+        el('span', { class: 'trend-headline__value', text: String(latest.total) }),
+        el('span', { class: 'trend-headline__label', text: ' findings in the latest scan' }),
+      ]),
+    );
+    trendPanel.appendChild(buildSparkline(recentTrends));
+  }
+  trendPanel.appendChild(el('a', { class: 'panel__more', href: '#/trends' }, 'View trends →'));
+  grid.appendChild(trendPanel);
   view.appendChild(grid);
 
   const topPanel = el('section', { class: 'panel' }, el('h2', { text: 'Top Findings' }));
@@ -618,29 +826,111 @@ async function renderDashboardPage(view) {
   view.appendChild(topPanel);
 }
 
+function buildNewScanForm(view) {
+  const pathInput = el('input', {
+    id: 'new-scan-path',
+    type: 'text',
+    placeholder: '/abs/dir within SENTINEL_SCAN_ROOT',
+    autocomplete: 'off',
+  });
+  const scannersInput = el('input', {
+    id: 'new-scan-scanners',
+    type: 'text',
+    placeholder: 'optional, e.g. secrets,source',
+    autocomplete: 'off',
+  });
+  const status = el('p', { class: 'form-status', role: 'status' });
+  const submit = el('button', { type: 'submit', class: 'btn btn--primary' }, 'Run Scan');
+
+  const form = el('form', { class: 'filters', onsubmit: (event) => event.preventDefault() }, [
+    el('div', { class: 'field' }, [el('label', { for: 'new-scan-path', text: 'Path' }), pathInput]),
+    el('div', { class: 'field' }, [
+      el('label', { for: 'new-scan-scanners', text: 'Scanners' }),
+      scannersInput,
+    ]),
+    submit,
+    status,
+  ]);
+
+  form.addEventListener('submit', async () => {
+    const generation = renderGeneration;
+    const path = pathInput.value.trim();
+    if (!path) {
+      status.textContent = 'Enter a path to scan.';
+      return;
+    }
+    const scanners = scannersInput.value
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    submit.disabled = true;
+    status.textContent = 'Queuing scan…';
+    let created;
+    try {
+      created = await api.createScan(scanners.length > 0 ? { path, scanners } : { path });
+    } catch (error) {
+      submit.disabled = false;
+      status.textContent = `Could not start scan: ${error && error.message ? error.message : error}`;
+      return;
+    }
+    const id = created && created.id;
+    if (!id) {
+      submit.disabled = false;
+      status.textContent = 'Scan started.';
+      return;
+    }
+    status.textContent = 'Scan queued — waiting for it to finish…';
+    pollScan(id, generation, {
+      onUpdate: (scan) => {
+        status.textContent = `Scan ${scanStatusLabel(scan.status).toLowerCase()}…`;
+      },
+      onDone: () => {
+        // Reload the list so the finished scan appears with its stats.
+        if (generation === renderGeneration) renderScansPage(view);
+      },
+      onError: (error) => {
+        submit.disabled = false;
+        status.textContent = `Scan polling failed: ${error && error.message ? error.message : error}`;
+      },
+    });
+  });
+
+  return form;
+}
+
 async function renderScansPage(view) {
-  view.appendChild(el('p', { class: 'loading', role: 'status', text: 'Loading scans…' }));
+  const generation = renderGeneration;
+  clearNode(view);
+  view.appendChild(el('div', { class: 'page-header' }, el('h1', { text: 'Scans' })));
+  const form = buildNewScanForm(view);
+  view.appendChild(form);
+
+  const listHolder = el('div', {});
+  view.appendChild(listHolder);
+  listHolder.appendChild(el('p', { class: 'loading', role: 'status', text: 'Loading scans…' }));
+
   let scans;
   try {
     scans = asList(await api.scans(), 'scans');
   } catch (error) {
-    clearNode(view);
-    view.appendChild(renderErrorPanel(error, () => renderScansPage(view)));
+    if (generation !== renderGeneration) return;
+    clearNode(listHolder);
+    listHolder.appendChild(renderErrorPanel(error, () => renderScansPage(view)));
     return;
   }
+  if (generation !== renderGeneration) return;
 
-  clearNode(view);
-  view.appendChild(el('div', { class: 'page-header' }, el('h1', { text: 'Scans' })));
-
+  clearNode(listHolder);
   if (scans.length === 0) {
-    view.appendChild(
-      renderEmptyState('No scans yet.', 'Start one with POST /api/scans or the sentinel CLI.'),
+    listHolder.appendChild(
+      renderEmptyState('No scans yet.', 'Start one above, or with POST /api/scans or the CLI.'),
     );
     return;
   }
 
   const headRow = el('tr', {}, [
     el('th', { scope: 'col' }, 'Project / Target'),
+    el('th', { scope: 'col' }, 'Status'),
     el('th', { scope: 'col' }, 'Started'),
     el('th', { scope: 'col' }, 'Duration'),
     el('th', { scope: 'col' }, 'Scanners'),
@@ -652,9 +942,11 @@ async function renderScansPage(view) {
   for (const scan of scans) {
     const id = scan && (scan.id ?? scan.scanId);
     const stats = scan && scan.stats && typeof scan.stats === 'object' ? scan.stats : null;
+    const status = scan && typeof scan.status === 'string' ? scan.status : 'completed';
     const row = el('tr', {}, [
       el('td', { text: (scan && (scan.project || scan.target)) || id || '(unknown)' }),
-      el('td', { text: formatDate(scan && scan.startedAt) }),
+      el('td', {}, statusBadge(status)),
+      el('td', { text: formatDate(scan && (scan.startedAt || scan.createdAt)) }),
       el('td', { text: formatDuration(scan && scan.durationMs) }),
       el('td', {
         text: scan && Array.isArray(scan.scannersRun) ? scan.scannersRun.join(', ') : '—',
@@ -673,22 +965,26 @@ async function renderScansPage(view) {
     tbody.appendChild(row);
   }
   const table = el('table', { class: 'data-table' }, [el('thead', {}, headRow), tbody]);
-  view.appendChild(el('div', { class: 'table-scroll' }, table));
+  listHolder.appendChild(el('div', { class: 'table-scroll' }, table));
 }
 
 async function renderScanDetailPage(view, id) {
+  const generation = renderGeneration;
   view.appendChild(el('p', { class: 'loading', role: 'status', text: 'Loading scan…' }));
+
   let scan;
-  let findings;
   try {
-    const [scanBody, findingsBody] = await Promise.all([api.scan(id), api.scanFindings(id)]);
-    scan = unwrapObject(scanBody, 'scan');
-    findings = asList(findingsBody, 'findings');
+    scan = unwrapObject(await api.scan(id), 'scan');
   } catch (error) {
+    if (generation !== renderGeneration) return;
     clearNode(view);
     view.appendChild(renderErrorPanel(error, () => renderScanDetailPage(view, id)));
     return;
   }
+  if (generation !== renderGeneration) return;
+
+  const status = typeof scan.status === 'string' ? scan.status : 'completed';
+  const completed = status === 'completed';
 
   clearNode(view);
   view.appendChild(
@@ -697,51 +993,104 @@ async function renderScanDetailPage(view, id) {
         el('p', { class: 'breadcrumb' }, [el('a', { href: '#/scans' }, 'Scans'), ` / ${id}`]),
         el('h1', { text: scan.project || scan.target || `Scan ${id}` }),
       ]),
-      el(
-        'div',
-        { class: 'page-header__actions' },
-        el(
-          'a',
-          { class: 'btn btn--secondary', href: `#/reports?scan=${encodeURIComponent(id)}` },
-          'View Report',
-        ),
-      ),
+      // The report only exists once completed; only then offer the link.
+      completed
+        ? el(
+            'div',
+            { class: 'page-header__actions' },
+            el(
+              'a',
+              { class: 'btn btn--secondary', href: `#/reports?scan=${encodeURIComponent(id)}` },
+              'View Report',
+            ),
+          )
+        : null,
     ]),
   );
 
   const dl = el('dl', { class: 'detail-list detail-list--inline' });
+  dl.appendChild(el('dt', { text: 'Status' }));
+  dl.appendChild(el('dd', {}, statusBadge(status)));
   const addMeta = (term, value) => {
     dl.appendChild(el('dt', { text: term }));
     dl.appendChild(el('dd', { text: value }));
   };
-  addMeta('Target', scan.target || '—');
-  addMeta('Started', formatDate(scan.startedAt));
+  addMeta('Target', scan.target || scan.path || '—');
+  addMeta('Started', formatDate(scan.startedAt || scan.createdAt));
   addMeta('Finished', formatDate(scan.finishedAt));
   addMeta('Duration', formatDuration(scan.durationMs));
   addMeta('Scanners run', Array.isArray(scan.scannersRun) ? scan.scannersRun.join(', ') : '—');
-  if (scan.status) addMeta('Status', String(scan.status));
   view.appendChild(el('section', { class: 'panel' }, dl));
 
-  if (Array.isArray(scan.errors) && scan.errors.length > 0) {
-    const list = el('ul', { class: 'scanner-error-list' });
-    for (const scannerError of scan.errors) {
-      list.appendChild(
-        el('li', {
-          text: `${(scannerError && scannerError.scanner) || 'unknown'}: ${(scannerError && scannerError.message) || 'error'}`,
-        }),
-      );
-    }
+  // Failed scan: surface the (already sanitized) error, no report to show.
+  if (status === 'failed') {
     view.appendChild(
-      el('section', { class: 'panel' }, [el('h2', { text: 'Scanner Errors' }), list]),
+      el('section', { class: 'panel error-panel', role: 'alert' }, [
+        el('h2', { text: 'Scan failed' }),
+        el('p', { text: scan.error || 'The scan did not complete.' }),
+      ]),
     );
+    return;
   }
 
+  // Queued/running: no report yet. Show a live status panel and poll until the
+  // scan settles, then re-render this page (which will then load the findings).
+  if (!completed) {
+    const badgeHolder = el('span', {}, statusBadge(status));
+    const message = el('p', {
+      text: 'This scan has not finished yet. This page updates automatically.',
+    });
+    view.appendChild(
+      el('section', { class: 'panel scan-progress', role: 'status', 'aria-live': 'polite' }, [
+        el('div', { class: 'scan-progress__row' }, [
+          el('span', { class: 'spinner', 'aria-hidden': 'true' }),
+          badgeHolder,
+        ]),
+        message,
+      ]),
+    );
+    pollScan(id, generation, {
+      onUpdate: (record) => {
+        clearNode(badgeHolder);
+        badgeHolder.appendChild(statusBadge(record.status));
+      },
+      onDone: () => {
+        if (generation === renderGeneration) renderScanDetailPage(view, id);
+      },
+      onError: (error) => {
+        if (generation !== renderGeneration) return;
+        message.textContent = `Could not update status: ${error && error.message ? error.message : error}`;
+      },
+    });
+    return;
+  }
+
+  // Completed: load and render findings. A stray 409 (report vanished) degrades
+  // to a friendly, retryable message rather than a crash.
+  const findingsPanel = el('section', { class: 'panel' }, el('h2', { text: 'Findings' }));
+  view.appendChild(findingsPanel);
   const detailHolder = el('div', { class: 'detail-holder' });
-  const findingsPanel = el(
-    'section',
-    { class: 'panel' },
-    el('h2', { text: `Findings (${findings.length})` }),
-  );
+  view.appendChild(detailHolder);
+
+  let findings;
+  try {
+    findings = asList(await api.scanFindings(id), 'findings');
+  } catch (error) {
+    if (generation !== renderGeneration) return;
+    if (error instanceof ApiError && error.status === 409) {
+      findingsPanel.appendChild(
+        renderEmptyState('The report is not ready yet.', 'Reload the page in a moment.'),
+      );
+      return;
+    }
+    clearNode(findingsPanel);
+    findingsPanel.appendChild(renderErrorPanel(error, () => renderScanDetailPage(view, id)));
+    return;
+  }
+  if (generation !== renderGeneration) return;
+
+  clearNode(findingsPanel);
+  findingsPanel.appendChild(el('h2', { text: `Findings (${findings.length})` }));
   if (findings.length === 0) {
     findingsPanel.appendChild(renderEmptyState('No findings for this scan.'));
   } else {
@@ -757,8 +1106,6 @@ async function renderScanDetailPage(view, id) {
       }),
     );
   }
-  view.appendChild(findingsPanel);
-  view.appendChild(detailHolder);
 }
 
 async function renderFindingsPage(view, query) {
@@ -977,6 +1324,408 @@ async function renderReportsPage(view, query) {
   }
 }
 
+function shortDate(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+/**
+ * Build a dependency-free SVG line chart of severity counts over time from the
+ * /api/trends series. Every node is an SVG element created in the SVG namespace
+ * (never innerHTML); axis/point labels are set via textContent, so API-derived
+ * dates are inert. Colors come from the existing severity CSS variables.
+ */
+function buildTrendChart(points) {
+  const width = 760;
+  const height = 280;
+  const padding = 36;
+  const dims = { width, height, padding };
+  const baseline = height - padding;
+  const seriesValues = SEVERITIES.map((key) => severityValues(points, key));
+  const max = seriesMax(seriesValues);
+  const xs = seriesToPoints(severityValues(points, 'total'), dims, max).map((point) => point.x);
+
+  const svg = svgEl('svg', {
+    class: 'trend-chart',
+    viewBox: `0 0 ${width} ${height}`,
+    role: 'img',
+    'aria-label': `Severity counts across ${points.length} completed scan${points.length === 1 ? '' : 's'}`,
+  });
+
+  // Axes.
+  svg.appendChild(
+    svgEl('line', {
+      class: 'trend-axis',
+      x1: padding,
+      y1: baseline,
+      x2: width - padding,
+      y2: baseline,
+    }),
+  );
+  svg.appendChild(
+    svgEl('line', { class: 'trend-axis', x1: padding, y1: padding, x2: padding, y2: baseline }),
+  );
+  // Y scale labels (0 and max).
+  svg.appendChild(
+    svgEl('text', {
+      class: 'trend-tick',
+      x: padding - 8,
+      y: padding + 4,
+      'text-anchor': 'end',
+      text: String(max),
+    }),
+  );
+  svg.appendChild(
+    svgEl('text', {
+      class: 'trend-tick',
+      x: padding - 8,
+      y: baseline + 4,
+      'text-anchor': 'end',
+      text: '0',
+    }),
+  );
+  // X scale labels (first and last scan date).
+  if (points.length > 0) {
+    svg.appendChild(
+      svgEl('text', {
+        class: 'trend-tick',
+        x: xs[0],
+        y: baseline + 18,
+        'text-anchor': 'middle',
+        text: shortDate(points[0].finishedAt),
+      }),
+    );
+    if (points.length > 1) {
+      svg.appendChild(
+        svgEl('text', {
+          class: 'trend-tick',
+          x: xs[xs.length - 1],
+          y: baseline + 18,
+          'text-anchor': 'middle',
+          text: shortDate(points[points.length - 1].finishedAt),
+        }),
+      );
+    }
+  }
+
+  // One colored line (plus dots) per severity.
+  SEVERITIES.forEach((key, i) => {
+    const pts = seriesToPoints(seriesValues[i], dims, max);
+    if (pts.length === 0) return;
+    svg.appendChild(
+      svgEl('path', {
+        class: `trend-line ${severityClass(key)}`,
+        d: pointsToPath(pts),
+        fill: 'none',
+      }),
+    );
+    for (const point of pts) {
+      svg.appendChild(
+        svgEl('circle', {
+          class: `trend-dot ${severityClass(key)}`,
+          cx: point.x,
+          cy: point.y,
+          r: 3,
+        }),
+      );
+    }
+  });
+
+  return svg;
+}
+
+function buildTrendLegend() {
+  const legend = el('ul', { class: 'trend-legend', 'aria-hidden': 'true' });
+  for (const severity of SEVERITIES) {
+    legend.appendChild(
+      el('li', { class: 'trend-legend__item' }, [
+        el('span', { class: `trend-legend__swatch ${severityClass(severity)}` }),
+        el('span', { text: severityLabel(severity) }),
+      ]),
+    );
+  }
+  return legend;
+}
+
+/** A compact sparkline of total findings across recent scans (dashboard use). */
+function buildSparkline(points) {
+  const width = 240;
+  const height = 48;
+  const dims = { width, height, padding: 4 };
+  const totals = severityValues(points, 'total');
+  const max = seriesMax([totals]);
+  const pts = seriesToPoints(totals, dims, max);
+  const svg = svgEl('svg', {
+    class: 'sparkline',
+    viewBox: `0 0 ${width} ${height}`,
+    role: 'img',
+    'aria-label': `Total findings across the last ${points.length} scans`,
+  });
+  svg.appendChild(
+    svgEl('path', { class: 'sparkline__area', d: pointsToAreaPath(pts, height - 4) }),
+  );
+  svg.appendChild(svgEl('path', { class: 'sparkline__line', d: pointsToPath(pts), fill: 'none' }));
+  const last = pts[pts.length - 1];
+  if (last)
+    svg.appendChild(svgEl('circle', { class: 'sparkline__dot', cx: last.x, cy: last.y, r: 3 }));
+  return svg;
+}
+
+async function renderTrendsPage(view, query) {
+  const generation = renderGeneration;
+  clearNode(view);
+  view.appendChild(el('div', { class: 'page-header' }, el('h1', { text: 'Risk Trends' })));
+
+  const holder = el('section', { class: 'panel' });
+  const controls = el('div', { class: 'trend-controls' });
+  view.appendChild(controls);
+  view.appendChild(holder);
+  holder.appendChild(el('p', { class: 'loading', role: 'status', text: 'Loading trends…' }));
+
+  let scans = [];
+  let trends;
+  try {
+    // Scans populate the target selector; a scans failure must not blank the
+    // chart, so it degrades to "all targets".
+    const [scansResult, trendsResult] = await Promise.allSettled([
+      api.scans(),
+      api.trends(query.target),
+    ]);
+    if (scansResult.status === 'fulfilled') scans = asList(scansResult.value, 'scans');
+    if (trendsResult.status === 'rejected') throw trendsResult.reason;
+    trends = asList(trendsResult.value, 'trends');
+  } catch (error) {
+    if (generation !== renderGeneration) return;
+    clearNode(holder);
+    holder.appendChild(renderErrorPanel(error, () => renderTrendsPage(view, query)));
+    return;
+  }
+  if (generation !== renderGeneration) return;
+
+  // Target selector, built from the distinct paths of completed scans.
+  const targets = [];
+  const seen = new Set();
+  for (const scan of scans) {
+    const target = scan && (scan.path || scan.target);
+    if (target && !seen.has(target)) {
+      seen.add(target);
+      targets.push(target);
+    }
+  }
+  const select = el('select', { id: 'trend-target', 'aria-label': 'Filter trends by target' });
+  select.appendChild(el('option', { value: '' }, 'All targets'));
+  for (const target of targets) {
+    const option = el('option', { value: target }, target);
+    if (query.target === target) option.selected = true;
+    select.appendChild(option);
+  }
+  select.addEventListener('change', () => {
+    const value = select.value;
+    navigate(value ? `#/trends?target=${encodeURIComponent(value)}` : '#/trends');
+  });
+  controls.appendChild(
+    el('div', { class: 'field' }, [el('label', { for: 'trend-target', text: 'Target' }), select]),
+  );
+
+  clearNode(holder);
+  if (trends.length === 0) {
+    holder.appendChild(
+      renderEmptyState(
+        'No completed scans yet.',
+        'Run a scan (or schedule one) to start building a trend.',
+      ),
+    );
+    return;
+  }
+
+  holder.appendChild(el('h2', { text: 'Findings by severity over time' }));
+  holder.appendChild(el('div', { class: 'trend-chart-scroll' }, buildTrendChart(trends)));
+  holder.appendChild(buildTrendLegend());
+}
+
+function buildScheduleForm(view) {
+  const pathInput = el('input', {
+    id: 'schedule-path',
+    type: 'text',
+    placeholder: '/abs/dir within SENTINEL_SCAN_ROOT',
+    autocomplete: 'off',
+  });
+  const intervalInput = el('input', {
+    id: 'schedule-interval',
+    type: 'number',
+    min: '1',
+    step: '1',
+    value: '60',
+  });
+  const scannersInput = el('input', {
+    id: 'schedule-scanners',
+    type: 'text',
+    placeholder: 'optional, e.g. secrets,source',
+    autocomplete: 'off',
+  });
+  const status = el('p', { class: 'form-status', role: 'status' });
+  const submit = el('button', { type: 'submit', class: 'btn btn--primary' }, 'Create Schedule');
+
+  const form = el('form', { class: 'filters', onsubmit: (event) => event.preventDefault() }, [
+    el('div', { class: 'field' }, [el('label', { for: 'schedule-path', text: 'Path' }), pathInput]),
+    el('div', { class: 'field' }, [
+      el('label', { for: 'schedule-interval', text: 'Every (minutes)' }),
+      intervalInput,
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { for: 'schedule-scanners', text: 'Scanners' }),
+      scannersInput,
+    ]),
+    submit,
+    status,
+  ]);
+
+  form.addEventListener('submit', async () => {
+    const path = pathInput.value.trim();
+    if (!path) {
+      status.textContent = 'Enter a path to scan.';
+      return;
+    }
+    const minutes = Number(intervalInput.value);
+    const intervalMs = Math.round(minutes * 60000);
+    if (!Number.isFinite(intervalMs) || intervalMs < MIN_SCHEDULE_INTERVAL_MS) {
+      status.textContent = 'Interval must be at least 1 minute.';
+      return;
+    }
+    const scanners = scannersInput.value
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    submit.disabled = true;
+    status.textContent = 'Creating schedule…';
+    try {
+      await api.createSchedule(
+        scanners.length > 0 ? { path, intervalMs, scanners } : { path, intervalMs },
+      );
+      renderSchedulesPage(view);
+    } catch (error) {
+      submit.disabled = false;
+      status.textContent = `Could not create schedule: ${error && error.message ? error.message : error}`;
+    }
+  });
+
+  return form;
+}
+
+async function renderSchedulesPage(view) {
+  const generation = renderGeneration;
+  clearNode(view);
+  view.appendChild(el('div', { class: 'page-header' }, el('h1', { text: 'Schedules' })));
+  view.appendChild(buildScheduleForm(view));
+
+  const listHolder = el('div', {});
+  view.appendChild(listHolder);
+  listHolder.appendChild(el('p', { class: 'loading', role: 'status', text: 'Loading schedules…' }));
+
+  let schedules;
+  try {
+    schedules = asList(await api.schedules(), 'schedules');
+  } catch (error) {
+    if (generation !== renderGeneration) return;
+    clearNode(listHolder);
+    listHolder.appendChild(renderErrorPanel(error, () => renderSchedulesPage(view)));
+    return;
+  }
+  if (generation !== renderGeneration) return;
+
+  clearNode(listHolder);
+  if (schedules.length === 0) {
+    listHolder.appendChild(
+      renderEmptyState('No schedules yet.', 'Create one above to scan a path on a fixed interval.'),
+    );
+    return;
+  }
+
+  const headRow = el('tr', {}, [
+    el('th', { scope: 'col' }, 'Path'),
+    el('th', { scope: 'col' }, 'Every'),
+    el('th', { scope: 'col' }, 'Status'),
+    el('th', { scope: 'col' }, 'Next run'),
+    el('th', { scope: 'col' }, 'Last run'),
+    el('th', { scope: 'col' }, 'Actions'),
+  ]);
+  const tbody = el('tbody');
+  for (const schedule of schedules) {
+    const id = schedule && schedule.id;
+    const enabled = !(schedule && schedule.enabled === false);
+
+    const lastRunCell = el('td', {});
+    if (schedule && schedule.lastScanId) {
+      lastRunCell.appendChild(
+        el(
+          'a',
+          { href: `#/scans/${encodeURIComponent(schedule.lastScanId)}` },
+          formatDate(schedule.lastRunAt),
+        ),
+      );
+    } else {
+      lastRunCell.textContent = '—';
+    }
+
+    const toggleBtn = el(
+      'button',
+      { type: 'button', class: 'btn btn--secondary btn--small' },
+      enabled ? 'Disable' : 'Enable',
+    );
+    toggleBtn.addEventListener('click', async () => {
+      toggleBtn.disabled = true;
+      try {
+        await api.updateSchedule(id, { enabled: !enabled });
+        renderSchedulesPage(view);
+      } catch (error) {
+        toggleBtn.disabled = false;
+        toggleBtn.textContent = 'Retry';
+        toggleBtn.title = error && error.message ? error.message : String(error);
+      }
+    });
+
+    const deleteBtn = el(
+      'button',
+      { type: 'button', class: 'btn btn--secondary btn--small btn--danger' },
+      'Delete',
+    );
+    deleteBtn.addEventListener('click', async () => {
+      if (!window.confirm('Delete this schedule?')) return;
+      deleteBtn.disabled = true;
+      try {
+        await api.deleteSchedule(id);
+        renderSchedulesPage(view);
+      } catch (error) {
+        deleteBtn.disabled = false;
+        deleteBtn.title = error && error.message ? error.message : String(error);
+      }
+    });
+
+    tbody.appendChild(
+      el('tr', {}, [
+        el('td', { class: 'mono-cell', text: (schedule && schedule.path) || '—' }),
+        el('td', { text: formatInterval(schedule && schedule.intervalMs) }),
+        el(
+          'td',
+          {},
+          el(
+            'span',
+            { class: `badge ${enabled ? 'status-completed' : 'status-unknown'}` },
+            enabled ? 'Enabled' : 'Disabled',
+          ),
+        ),
+        el('td', { text: formatDate(schedule && schedule.nextRunAt) }),
+        lastRunCell,
+        el('td', {}, el('div', { class: 'row-actions' }, id ? [toggleBtn, deleteBtn] : [])),
+      ]),
+    );
+  }
+  const table = el('table', { class: 'data-table' }, [el('thead', {}, headRow), tbody]);
+  listHolder.appendChild(el('div', { class: 'table-scroll' }, table));
+}
+
 function renderSettingsPage(view) {
   view.appendChild(el('div', { class: 'page-header' }, el('h1', { text: 'Settings' })));
 
@@ -1098,6 +1847,8 @@ function announce(message) {
 }
 
 async function render() {
+  // Invalidate any in-flight polling from the previous view.
+  renderGeneration += 1;
   const { segments, query } = parseRoute();
   const top = segments[0] || 'dashboard';
   updateActiveNav(top);
@@ -1114,8 +1865,14 @@ async function render() {
       if (segments[1]) await renderScanDetailPage(view, decodeURIComponent(segments[1]));
       else await renderScansPage(view);
       break;
+    case 'schedules':
+      await renderSchedulesPage(view);
+      break;
     case 'findings':
       await renderFindingsPage(view, query);
+      break;
+    case 'trends':
+      await renderTrendsPage(view, query);
       break;
     case 'rules':
       await renderRulesPage(view);

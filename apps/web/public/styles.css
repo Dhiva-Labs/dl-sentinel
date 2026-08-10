@@ -74,6 +74,8 @@ table {
   --accent-contrast: #ffffff;
   --focus-ring: #2f6feb;
   --danger: #b3261e;
+  --ok: #1f7a3d;
+  --ok-bg: #e3f4e8;
 
   --sev-critical: #a6231b;
   --sev-critical-bg: #fbe7e5;
@@ -107,6 +109,8 @@ table {
     --accent-contrast: #071120;
     --focus-ring: #7fb2ff;
     --danger: #ff8a80;
+    --ok: #6bd88f;
+    --ok-bg: #123021;
 
     --sev-critical: #ff8a80;
     --sev-critical-bg: #3a1613;
@@ -137,6 +141,8 @@ table {
   --accent-contrast: #ffffff;
   --focus-ring: #2f6feb;
   --danger: #b3261e;
+  --ok: #1f7a3d;
+  --ok-bg: #e3f4e8;
   --sev-critical: #a6231b;
   --sev-critical-bg: #fbe7e5;
   --sev-high: #a85400;
@@ -163,6 +169,8 @@ table {
   --accent-contrast: #071120;
   --focus-ring: #7fb2ff;
   --danger: #ff8a80;
+  --ok: #6bd88f;
+  --ok-bg: #123021;
   --sev-critical: #ff8a80;
   --sev-critical-bg: #3a1613;
   --sev-high: #ffb066;
@@ -909,6 +917,229 @@ input::placeholder {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+/* ---------- Scan status badges ---------- */
+
+.status-badge {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.badge.status-queued,
+.badge.status-unknown {
+  background: var(--sev-info-bg);
+  color: var(--sev-info);
+}
+
+.badge.status-running {
+  background: var(--sev-low-bg);
+  color: var(--sev-low);
+}
+
+.badge.status-completed {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
+.badge.status-failed {
+  background: var(--sev-critical-bg);
+  color: var(--sev-critical);
+}
+
+/* ---------- Scan progress (queued/running detail) ---------- */
+
+.scan-progress__row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.5rem;
+}
+
+.spinner {
+  display: inline-block;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+/* ---------- Small / danger buttons and row actions ---------- */
+
+.btn--small {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+.btn--danger {
+  color: var(--danger);
+}
+
+.btn--danger:hover {
+  border-color: var(--danger);
+}
+
+.row-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+/* ---------- Trend chart ---------- */
+
+.trend-controls {
+  margin-bottom: 1.25rem;
+}
+
+.trend-chart-scroll {
+  overflow-x: auto;
+}
+
+.trend-chart {
+  width: 100%;
+  min-width: 480px;
+  height: auto;
+}
+
+.trend-axis {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.trend-tick {
+  fill: var(--text-muted);
+  font-size: 11px;
+  font-family: var(--font-sans);
+}
+
+.trend-line {
+  fill: none;
+  stroke-width: 2;
+}
+
+.trend-line.sev-critical {
+  stroke: var(--sev-critical);
+}
+.trend-line.sev-high {
+  stroke: var(--sev-high);
+}
+.trend-line.sev-medium {
+  stroke: var(--sev-medium);
+}
+.trend-line.sev-low {
+  stroke: var(--sev-low);
+}
+.trend-line.sev-info {
+  stroke: var(--sev-info);
+}
+
+.trend-dot {
+  stroke: var(--bg-elevated);
+  stroke-width: 1;
+}
+.trend-dot.sev-critical {
+  fill: var(--sev-critical);
+}
+.trend-dot.sev-high {
+  fill: var(--sev-high);
+}
+.trend-dot.sev-medium {
+  fill: var(--sev-medium);
+}
+.trend-dot.sev-low {
+  fill: var(--sev-low);
+}
+.trend-dot.sev-info {
+  fill: var(--sev-info);
+}
+
+.trend-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+}
+
+.trend-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.trend-legend__swatch {
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 3px;
+  display: inline-block;
+}
+.trend-legend__swatch.sev-critical {
+  background: var(--sev-critical);
+}
+.trend-legend__swatch.sev-high {
+  background: var(--sev-high);
+}
+.trend-legend__swatch.sev-medium {
+  background: var(--sev-medium);
+}
+.trend-legend__swatch.sev-low {
+  background: var(--sev-low);
+}
+.trend-legend__swatch.sev-info {
+  background: var(--sev-info);
+}
+
+/* ---------- Sparkline (dashboard trend panel) ---------- */
+
+.trend-headline {
+  margin-bottom: 0.5rem;
+}
+
+.trend-headline__value {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.trend-headline__label {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.sparkline {
+  width: 100%;
+  height: auto;
+}
+
+.sparkline__line {
+  stroke: var(--accent);
+  stroke-width: 2;
+  fill: none;
+}
+
+.sparkline__area {
+  fill: var(--accent);
+  opacity: 0.12;
+  stroke: none;
+}
+
+.sparkline__dot {
+  fill: var(--accent);
 }
 
 /* ---------- Responsive ---------- */
