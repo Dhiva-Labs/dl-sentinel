@@ -1,0 +1,13 @@
+# Fixture configuration file. No secret values: everything sensitive is
+# read from the environment at runtime, never committed here.
+
+server:
+  host: 127.0.0.1
+  port: 8080
+  logLevel: info
+
+database:
+  url: ${DATABASE_URL}
+
+github:
+  token: ${GITHUB_TOKEN}

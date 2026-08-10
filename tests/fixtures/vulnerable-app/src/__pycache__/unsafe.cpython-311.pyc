@@ -1,0 +1,3 @@
+placeholder bytecode-cache file — exists only to prove default-exclude globs
+(DEFAULT_EXCLUDES includes **/__pycache__/**) exclude this directory when
+walking the real fixture tree. Not real Python bytecode.

@@ -1,0 +1,46 @@
+# Deliberately insecure fixture OpenAPI spec for DL Sentinel scanner tests.
+# Describes no real service; a pattern target only.
+
+openapi: 3.0.3
+info:
+  title: Vulnerable App Fixture API
+  version: 1.0.0
+servers:
+  - url: http://api.internal.example
+paths:
+  /users:
+    get:
+      summary: List users
+      responses:
+        '200':
+          description: OK
+  /users/{id}:
+    delete:
+      summary: Delete a user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
+  /reports:
+    get:
+      summary: Fetch a report
+      parameters:
+        - name: api_key
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+components:
+  securitySchemes:
+    ApiKeyQuery:
+      type: apiKey
+      in: query
+      name: api_key

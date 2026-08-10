@@ -1,0 +1,7 @@
+# The repo-wide .gitignore excludes .env / .env.* everywhere (real secrets
+# should never be committed). This fixture's .env is planted, synthetic, and
+# load-bearing for scanner tests, so it must be tracked. See ../README.md
+# ("gitignore override" section) for why this file exists and how it is kept
+# narrow (it does not blanket-unignore anything else in this directory).
+!.env
+!.env.*

@@ -1,0 +1,13 @@
+# Deliberately insecure fixture compose file for DL Sentinel scanner tests.
+# Not run by anything; a pattern target only.
+
+services:
+  app:
+    build: .
+    image: vulnerable-app-fixture:latest
+    privileged: true
+    network_mode: host
+    volumes:
+      - /:/host-root
+    environment:
+      NPM_TOKEN: npm_EXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLE00

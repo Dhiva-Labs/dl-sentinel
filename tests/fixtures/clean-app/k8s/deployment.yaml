@@ -1,0 +1,37 @@
+# Fixture k8s manifest with no known insecure patterns; a negative control
+# for DL Sentinel scanner tests. Not applied to any cluster.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clean-app-fixture
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: clean-app-fixture
+  template:
+    metadata:
+      labels:
+        app: clean-app-fixture
+    spec:
+      containers:
+        - name: app
+          image: clean-app-fixture:1.0.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+          resources:
+            requests:
+              cpu: '100m'
+              memory: '128Mi'
+            limits:
+              cpu: '250m'
+              memory: '256Mi'
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: clean-app-db
+                  key: url
