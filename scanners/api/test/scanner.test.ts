@@ -105,24 +105,17 @@ describe('shared cross-package fixtures (owned by feature/sentinel-testing, read
     expect(ruleIds.has('A005')).toBe(true); // unauthenticated DELETE /users/{id}
   });
 
-  it('produces no substantive security findings on the clean-app fixture', async () => {
+  it('produces zero findings on the clean-app fixture', async () => {
     const file = await sharedFixture('tests/fixtures/clean-app/openapi.yaml');
     const findings = await scanFileRefs(apiScanner, [file]);
 
     // clean-app declares proper bearer auth (global + every operation), an
-    // https server, and response schemas with no sensitive-looking fields, so
-    // none of the substantive security rules should fire.
-    const substantiveRuleIds = ['A001', 'A002', 'A003', 'A004', 'A005', 'A006', 'A008', 'A010'];
-    expect(findings.filter((f) => substantiveRuleIds.includes(f.ruleId))).toHaveLength(0);
-
-    // A007 (no 429/rate-limit signal anywhere in the document) is a document-wide,
-    // low/potential hygiene signal that is independent of security posture and
-    // legitimately still fires: the fixture documents no rate-limit behavior at
-    // all. A009 does NOT fire here: the fixture's only parameter is the DELETE's
-    // path-level "id", and A009 deliberately excludes path identifiers (see
-    // src/rules/data-rules.ts) to avoid flooding a finding on every routine
-    // REST path. See handover Known Issues for this scoping call.
-    expect(findings.map((f) => f.ruleId)).toEqual(['A007']);
+    // https server, a documented 429 response (satisfying A007), and response
+    // schemas with no sensitive-looking fields. A009 does not fire: the
+    // fixture's only parameter is the DELETE's path-level "id", and A009
+    // deliberately excludes path identifiers (see src/rules/data-rules.ts)
+    // to avoid flooding a finding on every routine REST path.
+    expect(findings).toHaveLength(0);
   });
 });
 

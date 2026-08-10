@@ -18,6 +18,8 @@ paths:
       responses:
         '200':
           description: OK
+        '429':
+          description: Too many requests
   /users/{id}:
     delete:
       summary: Delete a user
