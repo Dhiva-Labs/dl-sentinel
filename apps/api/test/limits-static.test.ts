@@ -34,8 +34,10 @@ describe('static dashboard: placeholder when web root is absent', () => {
   let ctx: TestServer;
 
   beforeAll(async () => {
-    // The web package is a stub here (no getWebRoot), so no root resolves.
-    ctx = await startTestServer();
+    // Force placeholder mode with an explicit non-existent web root. (With no
+    // webRoot option the server would resolve @dl-sentinel/web's real
+    // getWebRoot() and serve the actual dashboard instead.)
+    ctx = await startTestServer({ webRoot: path.join(tmpdir(), 'dl-sentinel-no-such-webroot') });
   });
 
   afterAll(async () => {
@@ -53,6 +55,33 @@ describe('static dashboard: placeholder when web root is absent', () => {
   it('returns 404 for an asset path when there is no web root', async () => {
     const res = await fetch(`${ctx.base}/app.js`);
     expect(res.status).toBe(404);
+  });
+});
+
+describe('static dashboard: default web root from @dl-sentinel/web', () => {
+  let ctx: TestServer;
+
+  beforeAll(async () => {
+    // No webRoot override: the server resolves the real dashboard via
+    // @dl-sentinel/web getWebRoot(), proving the two packages integrate.
+    ctx = await startTestServer();
+  });
+
+  afterAll(async () => {
+    await ctx.cleanup();
+  });
+
+  it('serves the real dashboard index at /', async () => {
+    const res = await fetch(`${ctx.base}/`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/html');
+    expect(await res.text()).toContain('DL Sentinel');
+  });
+
+  it('serves the real dashboard app.js asset', async () => {
+    const res = await fetch(`${ctx.base}/app.js`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/javascript');
   });
 });
 
