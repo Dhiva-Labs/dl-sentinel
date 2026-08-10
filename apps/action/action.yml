@@ -1,0 +1,61 @@
+name: 'DL Sentinel'
+description: 'Scan a pull request with DL Sentinel and report only the findings it introduces.'
+author: 'Dhiva Labs'
+
+branding:
+  icon: 'shield'
+  color: 'green'
+
+inputs:
+  path:
+    description: 'Directory to scan, relative to the repository root.'
+    required: false
+    default: '.'
+  fail_on:
+    description: 'Comma-separated severities that fail the check when newly introduced (critical, high, medium, low, info).'
+    required: false
+    default: 'critical,high'
+  scanners:
+    description: 'Optional comma-separated subset of scanner ids to run (e.g. "secrets,dependencies"). Empty runs all.'
+    required: false
+    default: ''
+  baseline:
+    description: 'Optional path to a committed baseline file (relative to the repository root). Only findings absent from it are reported.'
+    required: false
+    default: ''
+  base_path:
+    description: 'Optional directory holding the base branch tree (checked out by the workflow). Scanned to build an in-memory baseline so only PR-introduced findings are reported.'
+    required: false
+    default: ''
+  config:
+    description: 'Optional path to a sentinel.yml config file (relative to the repository root). By default an in-repo sentinel.yml is auto-discovered.'
+    required: false
+    default: ''
+  comment:
+    description: 'Post/update a sticky PR comment with the results (pull_request events only).'
+    required: false
+    default: 'true'
+  sarif:
+    description: 'Write a SARIF file of the new findings.'
+    required: false
+    default: 'true'
+  sarif_file:
+    description: 'Path to write the SARIF file to.'
+    required: false
+    default: 'sentinel-results.sarif'
+  token:
+    description: 'GitHub token used only to post the PR comment. Defaults to the workflow token; commenting is skipped if empty.'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  findings_total:
+    description: 'Total findings detected in the scanned tree (before baseline narrowing).'
+  findings_new:
+    description: 'Findings introduced by this pull request (after baseline).'
+  failed:
+    description: 'true when new findings hit the fail_on severities.'
+
+runs:
+  using: 'node20'
+  main: 'dist/main.js'
