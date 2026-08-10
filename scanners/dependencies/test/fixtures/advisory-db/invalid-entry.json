@@ -1,0 +1,11 @@
+[
+  {
+    "id": "X1",
+    "ecosystem": "npm",
+    "name": "foo",
+    "severity": "extreme",
+    "summary": "bad severity value",
+    "affectedRanges": [{ "fixed": "1.0.0" }],
+    "references": []
+  }
+]

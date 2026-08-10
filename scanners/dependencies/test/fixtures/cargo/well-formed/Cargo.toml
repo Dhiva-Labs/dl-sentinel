@@ -1,0 +1,14 @@
+[package]
+name = "cargo-fixture"
+version = "0.1.0"
+
+[dependencies]
+dl-fixture-vulnpkg = "1.2.3"
+dl-fixture-rangepkg = { version = "^0.9.0", features = ["full"] }
+local-thing = { path = "../local-thing" }
+
+[dev-dependencies]
+dl-fixture-devpkg = "2.0.0"
+
+[build-dependencies]
+dl-fixture-buildpkg = ">=1.0.0"

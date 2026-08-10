@@ -1,0 +1,7 @@
+[package]
+name = "broken-fixture"
+version = "0.1.0"
+
+[dependencies]
+this-line-is-not-key-value-shaped
+dl-fixture-goodpkg = "1.0.0"
