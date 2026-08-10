@@ -130,7 +130,46 @@ Engine responsibilities: config loading/merging with defaults, file discovery ho
 include/exclude and `maxFileSizeBytes`, binary detection (NUL-byte sniff of the first 8 KiB),
 never following symlinks, per-scanner file filtering via `supportedFiles`, concurrent
 execution with error isolation, `scanners[id].enabled === false` handling, event emission,
-dedupe via finding ids, stats computation, and assembling the final `Report`.
+dedupe via finding ids, applying suppression rules, stats computation, and assembling the
+final `Report`.
+
+### Suppressions and baselines (@dl-sentinel/core)
+
+Two finding-model mechanisms let a project manage findings it has already reviewed. Both are
+implemented and tested in `@dl-sentinel/core`; the engine, CLI, and reporting consume them.
+
+**Suppressions** — declared in `sentinel.yml` under `suppress` (a `SuppressionRule[]`):
+
+```yaml
+suppress:
+  - rule: S008 # match by rule id
+    path: '**/*.test.env' # AND by file glob
+    reason: fake keys used in tests
+    expires: 2027-01-01 # optional; the rule lapses after this date
+  - id: 9f2c4a1b8d3e6f70 # or pin a single finding by fingerprint
+    reason: accepted risk, tracked in TICKET-123
+```
+
+A finding is suppressed when it matches any **active** rule; within a rule every specified
+field must match (`rule`, `scanner`, `path`, `id`), and a rule with no matcher suppresses
+nothing. The engine applies `applySuppressions(findings, config.suppress, new Date())` during
+report assembly: `report.findings` contains only the survivors and `report.suppressed` records
+how many were dropped. This is the general form of the per-scanner allowlists (e.g. secrets).
+
+**Baselines** — a saved set of known finding ids (fingerprints), produced by `createBaseline`
+and consumed by `applyBaseline`. Because ids are stable, a baseline is effectively an id set;
+`applyBaseline(findings, baseline)` partitions findings into `newFindings` and `baselined`.
+The CLI uses this so a scan can report/fail on only newly introduced findings:
+
+```bash
+sentinel baseline .                       # write a baseline (default .sentinel-baseline.json)
+sentinel scan . --baseline .sentinel-baseline.json   # report only new findings
+sentinel scan . --write-baseline path.json           # scan and (re)write a baseline
+```
+
+When a baseline is applied, the policy/exit code is evaluated against the NEW findings only,
+and `report.baseline = { newFindings, baselined }` is populated. `parseBaseline` validates an
+untrusted baseline file's shape (a security tool must not trust it blindly).
 
 ### @dl-sentinel/reporting
 
@@ -198,6 +237,17 @@ scan-path restriction to an allowlisted base directory (`SENTINEL_SCAN_ROOT`), J
 log, structured error responses `{ "error": { "code", "message" } }`, findings persisted
 under the server data directory (`.dl-sentinel/`), and no execution of scanned code.
 The server serves the dashboard from `@dl-sentinel/web` `getWebRoot()` at `/`.
+
+**Asynchronous scans.** `POST /api/scans` enqueues a job and returns `202` with
+`{ id, status: "queued" }` immediately rather than blocking until the scan finishes. A bounded
+in-process worker (concurrency from `SENTINEL_SCAN_CONCURRENCY`, default 2) runs jobs. A scan
+record has `status ∈ queued | running | completed | failed`; `GET /api/scans/:id` returns the
+record with its `report` once `completed` (and an `error` message when `failed`). `GET
+/api/scans` lists records with their status. Endpoints that need a finished report
+(`/findings`, `/reports/:id`) return `409 { error: { code: "scan_not_ready" } }` while a scan
+is still queued/running. Jobs and their status survive restart via the existing on-disk store;
+a job left `running` at shutdown is marked `failed` (interrupted) on reload. This keeps the
+server responsive and is the substrate the scheduled-scan feature builds on.
 
 ### Dashboard (`apps/web`)
 

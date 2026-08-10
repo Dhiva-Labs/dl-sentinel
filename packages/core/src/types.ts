@@ -162,6 +162,14 @@ export interface Report {
   stats: SeverityStats;
   findings: Finding[];
   errors: ScannerError[];
+  /**
+   * Count of findings removed by suppression rules before this report was
+   * assembled. Absent (not 0) when no suppression was configured, so existing
+   * consumers and serialized reports are unaffected.
+   */
+  suppressed?: number;
+  /** Baseline comparison summary, present only when a baseline was applied. */
+  baseline?: { newFindings: number; baselined: number };
 }
 
 export type ReportFormat = 'terminal' | 'json' | 'markdown' | 'sarif';
@@ -176,12 +184,63 @@ export interface ScannerSettings {
   [key: string]: unknown;
 }
 
+/**
+ * A rule for suppressing findings (declared in sentinel.yml under `suppress`).
+ * A finding is suppressed when it matches an ACTIVE rule: every field the rule
+ * specifies must match, and a rule that specifies no matcher matches nothing
+ * (so an empty rule can never suppress everything by accident). `expires` lets
+ * a suppression lapse so the finding resurfaces instead of being hidden
+ * forever.
+ */
+export interface SuppressionRule {
+  /** Match findings emitted by this rule id, e.g. "S001". */
+  rule?: string;
+  /** Match findings produced by this scanner id, e.g. "secrets". */
+  scanner?: string;
+  /** Match findings whose file matches this repo-relative glob. */
+  path?: string;
+  /** Match a single finding by its fingerprint id. */
+  id?: string;
+  /** Audit trail: why this finding is suppressed. */
+  reason?: string;
+  /** ISO-8601 date; on/after this instant the rule no longer suppresses. */
+  expires?: string;
+}
+
 export interface SentinelConfig {
   include: string[];
   exclude: string[];
   maxFileSizeBytes: number;
   scanners: Record<string, ScannerSettings>;
   policy: PolicyConfig;
+  /**
+   * Suppression rules applied to findings after scanning. Optional for
+   * backward compatibility; `defaultConfig()` always populates it with `[]`.
+   */
+  suppress?: SuppressionRule[];
+}
+
+/** A finding recorded in a baseline: its id plus human-readable context. */
+export interface BaselineEntry {
+  id: string;
+  ruleId: string;
+  file: string;
+  severity: Severity;
+}
+
+/**
+ * A saved set of known findings. Because finding ids are stable fingerprints,
+ * a baseline is effectively a set of ids; the extra fields are for humans
+ * reading the file. Produced by `createBaseline`, consumed by `applyBaseline`.
+ */
+export interface Baseline {
+  tool: { name: string; version: string };
+  /** ISO-8601 timestamp the baseline was generated. */
+  generatedAt: string;
+  /** What was scanned to produce it (informational). */
+  target: string;
+  count: number;
+  findings: BaselineEntry[];
 }
 
 /**
@@ -214,5 +273,6 @@ export function defaultConfig(): SentinelConfig {
     maxFileSizeBytes: 1024 * 1024,
     scanners: {},
     policy: { failOn: ['critical', 'high'] },
+    suppress: [],
   };
 }
