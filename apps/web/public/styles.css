@@ -919,6 +919,82 @@ input::placeholder {
   flex-wrap: wrap;
 }
 
+.error-panel__hint {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+/* A 403 is a permission problem, not a failure: warn rather than alarm, so it
+   reads differently from the red "something went wrong" panel. */
+.error-panel--forbidden {
+  border-color: var(--sev-high);
+}
+
+.error-panel--forbidden h2 {
+  color: var(--sev-high);
+}
+
+/* ---------- Role gating ---------- */
+
+/* Stands where a control would be, for a role that may not use it. */
+.role-notice {
+  border-style: dashed;
+}
+
+.role-notice__message {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.role-notice__hint {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.page-intro {
+  color: var(--text-muted);
+  margin-bottom: 1.25rem;
+  max-width: 70ch;
+}
+
+.badge.role-badge {
+  background: var(--bg-inset);
+  color: var(--text-muted);
+}
+
+/* ---------- One-time token reveal (Users view) ---------- */
+
+.token-reveal {
+  border-color: var(--accent);
+  margin-bottom: 1.25rem;
+}
+
+.token-reveal h2 {
+  margin-bottom: 0.4rem;
+}
+
+.token-reveal__warning {
+  color: var(--text-muted);
+  margin-bottom: 0.75rem;
+  max-width: 70ch;
+}
+
+.token-reveal__row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.token-reveal__value {
+  flex: 1 1 26rem;
+  min-width: 0;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+}
+
 /* ---------- Scan status badges ---------- */
 
 .status-badge {

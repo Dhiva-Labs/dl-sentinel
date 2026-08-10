@@ -18,7 +18,50 @@ Authorization: Bearer <token>
 ```
 
 Token comparison is constant-time, to avoid leaking information through response-time
-differences.
+differences. There are no passwords anywhere in the system — a token is the only credential.
+
+## Roles and permissions
+
+The bootstrap token (`SENTINEL_API_TOKEN`, or the generated one) is the **root admin** and always
+works, so an existing single-token deployment needs no changes. Admins may additionally create
+users, each with their own bearer token and a role:
+
+| Role | May do |
+| --- | --- |
+| `viewer` | Every `GET`: `/api/scans`, `/api/scans/:id`, `/api/scans/:id/findings`, `/api/findings`, `/api/rules`, `/api/reports/:id`, `/api/schedules`, `/api/schedules/:id`, `/api/history`, `/api/trends`, `/api/me` |
+| `operator` | Everything a viewer may do, plus `POST /api/scans` |
+| `admin` | Everything: schedule mutations (`POST`/`PATCH`/`DELETE` on `/api/schedules*`) and user management (`/api/users*`) |
+
+Roles are strictly nested — an `admin` may do anything an `operator` may, and so on. A request
+whose role is insufficient is rejected with `403`, before the handler runs:
+
+```json
+{ "error": { "code": "forbidden", "message": "Your role does not permit this request (requires role: admin)" } }
+```
+
+`403` means the token is valid but the role is not enough; `401` remains the answer for a missing,
+malformed, unknown, or disabled token. Authorization is fail-closed: any `/api` path not listed
+above requires `admin`, so an under-privileged caller gets `403` rather than a `404` that would
+confirm whether a route exists. `/health` and the dashboard's static assets stay unauthenticated.
+
+## Users
+
+User records are `{ id, name, role, tokenHash, createdAt, disabled? }`, persisted under the data
+directory (`SENTINEL_DATA_DIR/users/`) so they survive a restart. Only admins may call these
+endpoints, reads included.
+
+**One-time tokens.** A user's token is generated server-side (32 random bytes, hex-encoded) and
+returned **exactly once**, in the response to `POST /api/users` or `POST /api/users/:id/rotate`.
+The server stores only its SHA-256 hash, so the token cannot be recovered, re-served, or read back
+out of the store — if it is lost, rotate to issue a new one. Tokens are never written to the audit
+log, and `GET /api/users` never returns a token or a hash.
+
+Root is not a user record: it cannot be listed, patched, or deleted (`/api/users/root` is a
+`404`). That is what makes the bootstrap token's access unconditional.
+
+Disabling a user (`PATCH { "disabled": true }`) makes their token authenticate as invalid — a
+`401`, exactly like deleting them — and is reversible. Rotating invalidates the previous token
+immediately.
 
 ## Scan path restriction
 
@@ -45,6 +88,13 @@ the server at arbitrary filesystem locations.
 | `DELETE` | `/api/schedules/:id` | Delete a schedule. Returns `204`; `404` if unknown. |
 | `GET` | `/api/history` | Chronological (oldest-first) list of completed scans, reduced to their outcome. Query: `?target=<path>` filters to one scanned path; `?limit=<n>` keeps the most recent `n` (still oldest-first). See [Response shapes](#response-shapes). |
 | `GET` | `/api/trends` | Per-scan severity time series for charting, oldest-first. Query: `?target=<path>` filters to one scanned path. Derived from stored records — scans are never recomputed. |
+| `GET` | `/api/me` | The calling identity: `{ name, role }`. Available to any valid token; the dashboard uses it to role-gate its UI. |
+| `POST` | `/api/users` | **Admin.** Create a user. Body: `{ "name": "CI pipeline", "role": "viewer\|operator\|admin" }`. Returns `201` with the record **and the one-time `token`**. |
+| `GET` | `/api/users` | **Admin.** List users (newest first). Never includes tokens or token hashes. |
+| `GET` | `/api/users/:id` | **Admin.** Get one user. `404` if unknown. |
+| `PATCH` | `/api/users/:id` | **Admin.** Update a user. Body: `{ "role"?: "viewer\|operator\|admin", "disabled"?: boolean }`. Returns `200` with the updated user; `404` if unknown. |
+| `DELETE` | `/api/users/:id` | **Admin.** Delete a user; their token stops working immediately. Returns `204`; `404` if unknown. |
+| `POST` | `/api/users/:id/rotate` | **Admin.** Issue a new token for a user. Returns `200` with `{ token }` (shown once); the previous token is invalid immediately. `404` if unknown. |
 | `GET` | `/health` | Health check. |
 
 ## Response shapes
@@ -81,6 +131,16 @@ the server at arbitrary filesystem locations.
   oldest-first, over completed scans only (optionally filtered by `?target=`). `total` is the sum
   of the severity buckets. Both endpoints derive purely from stored records; they never re-run a
   scan.
+- `GET /api/me` returns `{ name, role }`. For the bootstrap token that is
+  `{ "name": "root", "role": "admin" }`; for a user it is their own name and role.
+- `POST /api/users` returns `201` with `{ id, name, role, createdAt, token }`. This is the only
+  response that ever contains `token` (along with rotate's) — copy it now, it cannot be re-served.
+- `GET /api/users` returns an array of `{ id, name, role, createdAt, disabled }` (newest first);
+  `GET /api/users/:id` returns one; `PATCH` returns the updated one. `tokenHash` is never part of
+  any of these shapes.
+- `POST /api/users/:id/rotate` returns `200` with `{ token }` — a new one-time token. The user's
+  previous token stops authenticating as soon as this returns.
+- `DELETE /api/users/:id` returns `204` with an empty body.
 
 ## Asynchronous scans
 
@@ -136,23 +196,31 @@ Structured JSON, never a bare string or an HTTP status alone:
 ```
 
 Current `code` values: `validation_error` (400), `invalid_json` (400), `unauthorized` (401),
-`not_found` (404), `method_not_allowed` (405), `scan_not_ready` (409), `payload_too_large`
-(413), `rate_limited` (429), and `internal_error` (500). Server errors never include a stack
-trace in the response body, and a failed scan's `error` message is sanitized — engine
-validation messages are surfaced as-is, but any other failure collapses to a generic message so
-internal detail never leaks.
+`forbidden` (403), `not_found` (404), `method_not_allowed` (405), `scan_not_ready` (409),
+`payload_too_large` (413), `rate_limited` (429), and `internal_error` (500). Server errors never
+include a stack trace in the response body, and a failed scan's `error` message is sanitized —
+engine validation messages are surfaced as-is, but any other failure collapses to a generic
+message so internal detail never leaks.
+
+`unauthorized` and `forbidden` are deliberately distinct: the first means "no usable token", the
+second "this token's role is not enough" (see [Roles and permissions](#roles-and-permissions)).
 
 ## Rate limiting
 
 In-memory, fixed-window rate limiting protects a self-hosted deployment from abuse. Defaults are
 60 requests per 60 seconds, configurable via `SENTINEL_RATE_LIMIT_MAX` and
 `SENTINEL_RATE_LIMIT_WINDOW_MS`; exceeding the window returns `429` with a `Retry-After` header.
-Request bodies are capped at `SENTINEL_MAX_BODY_BYTES` (default 1 MiB) → `413`.
+The limit is per caller — it is keyed on the presented token, so root and each user have an
+independent budget and one noisy user cannot exhaust another's. Request bodies are capped at
+`SENTINEL_MAX_BODY_BYTES` (default 1 MiB) → `413`.
 
 ## Audit log
 
 Requests are recorded to a JSONL audit log as part of the server's persisted state under
-`.dl-sentinel/`.
+`.dl-sentinel/`. Each entry carries `{ ts, method, path, status, tokenId, userId, ip }`, where
+`userId` is the acting user — `root` for the bootstrap token, a user id for a user token, and `-`
+for an unauthenticated request. `tokenId` is a short prefix of the token's hash; neither a token
+nor a token hash is ever written to the log.
 
 ## What the API server never does
 

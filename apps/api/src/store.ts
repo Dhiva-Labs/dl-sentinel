@@ -10,7 +10,9 @@ import type {
   ScanSummary,
   ScheduleRecord,
   ServerLogger,
+  UserRecord,
 } from './types.js';
+import { isUserRole } from './permissions.js';
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -51,12 +53,19 @@ function toSummary(scan: ScanRecord): ScanSummary {
  * engine and are stored as-is; the store never writes tokens or raw request
  * bodies. Records mutate through {@link create} and {@link update}, and every
  * mutation is written through to disk.
+ *
+ * Schedules (`<dataDir>/schedules/`) and users (`<dataDir>/users/`) persist the
+ * same way. A user record holds only the SHA-256 hash of its bearer token — the
+ * token itself is never written to disk, to the audit log, or to a response
+ * after the one create/rotate that returned it.
  */
 export class ReportStore {
   private readonly scans = new Map<string, ScanRecord>();
   private readonly schedules = new Map<string, ScheduleRecord>();
+  private readonly users = new Map<string, UserRecord>();
   private readonly scansDir: string;
   private readonly schedulesDir: string;
+  private readonly usersDir: string;
   private readonly auditPath: string;
   private readonly logger: ServerLogger;
   /** In-flight async writes (audit-log appends), so shutdown can await them. */
@@ -65,10 +74,12 @@ export class ReportStore {
   constructor(dataDir: string, logger: ServerLogger) {
     this.scansDir = path.join(dataDir, 'scans');
     this.schedulesDir = path.join(dataDir, 'schedules');
+    this.usersDir = path.join(dataDir, 'users');
     this.auditPath = path.join(dataDir, 'audit.log');
     this.logger = logger;
     this.loadExisting();
     this.loadSchedules();
+    this.loadUsers();
   }
 
   private loadExisting(): void {
@@ -286,6 +297,94 @@ export class ReportStore {
       rmSync(path.join(this.schedulesDir, `${id}.json`), { force: true });
     } catch (error) {
       this.logger.warn(`Failed to remove schedule file ${id}: ${errorMessage(error)}`);
+    }
+    return true;
+  }
+
+  // -------------------------------------------------------------------------
+  // Users — persisted like schedules, under `<dataDir>/users/<id>.json`. The
+  // stored record carries a token *hash*, never a token.
+  // -------------------------------------------------------------------------
+
+  private loadUsers(): void {
+    mkdirSync(this.usersDir, { recursive: true });
+    let names: string[];
+    try {
+      names = readdirSync(this.usersDir);
+    } catch (error) {
+      this.logger.warn(`Could not read users directory: ${errorMessage(error)}`);
+      return;
+    }
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue;
+      try {
+        const parsed = JSON.parse(readFileSync(path.join(this.usersDir, name), 'utf8')) as
+          UserRecord | undefined;
+        if (
+          parsed !== null &&
+          typeof parsed === 'object' &&
+          typeof parsed.id === 'string' &&
+          typeof parsed.name === 'string' &&
+          typeof parsed.tokenHash === 'string' &&
+          parsed.tokenHash !== '' &&
+          typeof parsed.createdAt === 'string' &&
+          isUserRole(parsed.role)
+        ) {
+          this.users.set(parsed.id, parsed);
+        }
+      } catch (error) {
+        this.logger.warn(`Skipping unreadable user file ${name}: ${errorMessage(error)}`);
+      }
+    }
+  }
+
+  private persistUser(record: UserRecord): void {
+    try {
+      writeFileSync(path.join(this.usersDir, `${record.id}.json`), JSON.stringify(record, null, 2));
+    } catch (error) {
+      this.logger.error(`Failed to persist user ${record.id}: ${errorMessage(error)}`);
+    }
+  }
+
+  /**
+   * Create and persist a user. The caller has already minted the token and
+   * hashed it — this store only ever sees the digest.
+   */
+  createUser(input: { name: string; role: UserRecord['role']; tokenHash: string }): UserRecord {
+    const record: UserRecord = {
+      id: randomUUID(),
+      name: input.name,
+      role: input.role,
+      tokenHash: input.tokenHash,
+      createdAt: new Date().toISOString(),
+    };
+    this.users.set(record.id, record);
+    this.persistUser(record);
+    return record;
+  }
+
+  /** Replace a user in memory and write it through to disk. */
+  updateUser(record: UserRecord): void {
+    this.users.set(record.id, record);
+    this.persistUser(record);
+  }
+
+  getUser(id: string): UserRecord | undefined {
+    return this.users.get(id);
+  }
+
+  /** All users, newest first (by creation time). */
+  listUsers(): UserRecord[] {
+    return [...this.users.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  /** Remove a user and its file. Returns whether it existed. */
+  deleteUser(id: string): boolean {
+    if (!this.users.delete(id)) return false;
+    try {
+      rmSync(path.join(this.usersDir, `${id}.json`), { force: true });
+    } catch (error) {
+      this.logger.warn(`Failed to remove user file ${id}: ${errorMessage(error)}`);
     }
     return true;
   }

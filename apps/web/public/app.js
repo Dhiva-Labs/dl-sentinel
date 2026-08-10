@@ -161,6 +161,42 @@ function isTerminalStatus(status) {
   return status === 'completed' || status === 'failed';
 }
 
+// Role gating — mirror of apps/web/src/rbac.ts. These decide only what the UI
+// offers; the API enforces the same matrix itself and answers 403 regardless of
+// what is rendered here.
+function isRole(value) {
+  return value === 'admin' || value === 'operator' || value === 'viewer';
+}
+
+function can(role, action) {
+  if (!isRole(role)) return false;
+  if (role === 'admin') return true;
+  if (action === 'startScan') return role === 'operator';
+  return false;
+}
+
+function roleLabel(role) {
+  if (role === 'admin') return 'Admin';
+  if (role === 'operator') return 'Operator';
+  if (role === 'viewer') return 'Viewer';
+  return 'Unknown';
+}
+
+function formatUserRow(user) {
+  const source = user && typeof user === 'object' ? user : {};
+  const name = typeof source.name === 'string' && source.name !== '' ? source.name : '—';
+  const disabled = source.disabled === true;
+  return {
+    id: typeof source.id === 'string' ? source.id : '',
+    name,
+    role: isRole(source.role) ? source.role : '',
+    roleLabel: roleLabel(source.role),
+    createdAt: typeof source.createdAt === 'string' ? source.createdAt : '',
+    disabled,
+    status: disabled ? 'Disabled' : 'Active',
+  };
+}
+
 // Schedule interval formatting — mirror of apps/web/src/schedule.ts.
 function formatInterval(ms) {
   if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return '—';
@@ -386,7 +422,14 @@ function updateConnectionIndicator() {
   if (!indicator) return;
   const { baseUrl, token } = loadSettings();
   const host = baseUrl || 'this origin';
-  indicator.textContent = token ? `API: ${host}` : `API: ${host} (no token set)`;
+  if (!token) {
+    indicator.textContent = `API: ${host} (no token set)`;
+    return;
+  }
+  // Once /api/me has answered, show which role the token carries — it explains
+  // why a control the reader expected is missing.
+  const role = currentRole();
+  indicator.textContent = isRole(role) ? `API: ${host} · ${roleLabel(role)}` : `API: ${host}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -451,6 +494,16 @@ async function apiFetch(path, { query, method, body } = {}) {
     if (response.status === 401) {
       message = message || 'Unauthorized. Set a valid API token in Settings.';
     }
+    if (response.status === 403) {
+      // A valid token, insufficient role — a different problem from 401, and it
+      // must not send the reader off to re-enter a token that is already fine.
+      message = message || 'Your role does not permit this action.';
+      // A 403 also proves the cached role is stale or wrong (an admin can
+      // change a role mid-session), so re-resolve it rather than keep offering
+      // affordances the server will keep refusing. /api/me is excluded: it is
+      // readable by every role, so it cannot be the request that 403'd.
+      if (path !== '/api/me') refreshIdentity();
+    }
     throw new ApiError(message || response.statusText || `Request failed (${response.status})`, {
       status: response.status,
       code,
@@ -506,7 +559,66 @@ const api = {
   createSchedule: (body) => sendJson('/api/schedules', 'POST', body),
   updateSchedule: (id, body) => sendJson(`/api/schedules/${encodeURIComponent(id)}`, 'PATCH', body),
   deleteSchedule: (id) => sendJson(`/api/schedules/${encodeURIComponent(id)}`, 'DELETE'),
+  me: () => getJson('/api/me'),
+  users: () => getJson('/api/users'),
+  createUser: (body) => sendJson('/api/users', 'POST', body),
+  updateUser: (id, body) => sendJson(`/api/users/${encodeURIComponent(id)}`, 'PATCH', body),
+  deleteUser: (id) => sendJson(`/api/users/${encodeURIComponent(id)}`, 'DELETE'),
+  rotateUserToken: (id) => sendJson(`/api/users/${encodeURIComponent(id)}/rotate`, 'POST', {}),
 };
+
+// ---------------------------------------------------------------------------
+// Identity (GET /api/me) — drives role gating
+// ---------------------------------------------------------------------------
+
+// The caller's identity, resolved once per token. Held in memory only: nothing
+// about the role is written to localStorage, so it can never go stale against
+// the server or be edited by hand to reveal admin controls (which would 403 the
+// moment they were used anyway).
+let identity = { token: null, name: null, role: null, resolved: false };
+
+function currentRole() {
+  return identity.role;
+}
+
+/**
+ * Resolve the caller's identity from GET /api/me, once per token. A failure
+ * (no token set, 401, unreachable server) leaves the role unknown, which gates
+ * every privileged control off; the view's own request then surfaces the real
+ * error, so this never reports one twice.
+ */
+async function loadIdentity() {
+  const { token } = loadSettings();
+  if (identity.resolved && identity.token === token) return identity;
+  identity = { token, name: null, role: null, resolved: true };
+  if (!token) return identity;
+  try {
+    const me = unwrapObject(await api.me(), 'me');
+    identity.name = typeof me.name === 'string' ? me.name : null;
+    identity.role = isRole(me.role) ? me.role : null;
+  } catch {
+    // Leave the identity unknown; pages report their own failures.
+  }
+  return identity;
+}
+
+/** Forget the cached identity so the next render re-resolves it. */
+function invalidateIdentity() {
+  identity = { token: null, name: null, role: null, resolved: false };
+}
+
+/** Drop the cached identity, re-resolve it, and update role-dependent chrome. */
+function refreshIdentity() {
+  invalidateIdentity();
+  return loadIdentity().then(updateRoleChrome);
+}
+
+/** Show or hide role-dependent chrome (currently just the Users nav item). */
+function updateRoleChrome() {
+  const usersNav = document.getElementById('nav-users');
+  if (usersNav) usersNav.hidden = !can(currentRole(), 'manageUsers');
+  updateConnectionIndicator();
+}
 
 // ---------------------------------------------------------------------------
 // Shared UI components
@@ -532,16 +644,47 @@ function renderEmptyState(message, hint) {
 }
 
 function renderErrorPanel(error, retry) {
-  const isAuth = error instanceof ApiError && error.status === 401;
+  const status = error instanceof ApiError ? error.status : undefined;
+  const isAuth = status === 401;
+  const isForbidden = status === 403;
   const message = error && error.message ? error.message : String(error);
-  const panel = el('div', { class: 'panel error-panel', role: 'alert' }, [
-    el('h2', { text: isAuth ? 'Authentication required' : 'Something went wrong' }),
-    el('p', { text: message }),
-  ]);
+
+  let heading = 'Something went wrong';
+  if (isAuth) heading = 'Authentication required';
+  else if (isForbidden) heading = 'Not permitted';
+
+  const panel = el(
+    'div',
+    {
+      class: `panel error-panel${isForbidden ? ' error-panel--forbidden' : ''}`,
+      role: 'alert',
+    },
+    [el('h2', { text: heading }), el('p', { text: message })],
+  );
+
+  // 403 is about the role, not the token. The hint deliberately does not name
+  // the caller's role: reaching here means the cached one was wrong or has just
+  // changed, so stating it could be actively misleading. The header indicator
+  // shows the re-resolved role instead.
+  if (isForbidden) {
+    panel.appendChild(
+      el('p', {
+        class: 'error-panel__hint',
+        text:
+          'Your token is valid — the role it carries does not allow this request. ' +
+          'Ask an administrator for a role with more access.',
+      }),
+    );
+  }
+
   const actions = el('div', { class: 'error-panel__actions' });
   if (isAuth) {
     actions.appendChild(
       el('a', { class: 'btn btn--primary', href: '#/settings' }, 'Go to Settings'),
+    );
+  } else if (isForbidden) {
+    actions.appendChild(
+      el('a', { class: 'btn btn--secondary', href: '#/settings' }, 'Use a different token'),
     );
   }
   if (retry) {
@@ -551,6 +694,24 @@ function renderErrorPanel(error, retry) {
   }
   panel.appendChild(actions);
   return panel;
+}
+
+/**
+ * An inline notice where a control would be, for something the current role may
+ * not do. Distinct from renderErrorPanel: nothing failed, the affordance simply
+ * is not offered.
+ */
+function renderRoleNotice(message) {
+  const role = currentRole();
+  return el('div', { class: 'panel role-notice', role: 'note' }, [
+    el('p', { class: 'role-notice__message', text: message }),
+    el('p', {
+      class: 'role-notice__hint',
+      text: isRole(role)
+        ? `You are signed in as ${roleLabel(role)}.`
+        : 'Set an API token in Settings to see what your role allows.',
+    }),
+  ]);
 }
 
 function buildFindingsTable(findings, { onSelect } = {}) {
@@ -902,8 +1063,13 @@ async function renderScansPage(view) {
   const generation = renderGeneration;
   clearNode(view);
   view.appendChild(el('div', { class: 'page-header' }, el('h1', { text: 'Scans' })));
-  const form = buildNewScanForm(view);
-  view.appendChild(form);
+  // Viewers may read scans but not start them (docs/api.md permission matrix),
+  // so the trigger form is not offered at all rather than shown and 403'd.
+  view.appendChild(
+    can(currentRole(), 'startScan')
+      ? buildNewScanForm(view)
+      : renderRoleNotice('Starting a scan requires the Operator or Admin role.'),
+  );
 
   const listHolder = el('div', {});
   view.appendChild(listHolder);
@@ -923,7 +1089,12 @@ async function renderScansPage(view) {
   clearNode(listHolder);
   if (scans.length === 0) {
     listHolder.appendChild(
-      renderEmptyState('No scans yet.', 'Start one above, or with POST /api/scans or the CLI.'),
+      renderEmptyState(
+        'No scans yet.',
+        can(currentRole(), 'startScan')
+          ? 'Start one above, or with POST /api/scans or the CLI.'
+          : undefined,
+      ),
     );
     return;
   }
@@ -1616,9 +1787,15 @@ function buildScheduleForm(view) {
 
 async function renderSchedulesPage(view) {
   const generation = renderGeneration;
+  const mayManage = can(currentRole(), 'manageSchedules');
   clearNode(view);
   view.appendChild(el('div', { class: 'page-header' }, el('h1', { text: 'Schedules' })));
-  view.appendChild(buildScheduleForm(view));
+  // Everyone with a token may read schedules; only an admin may change them.
+  view.appendChild(
+    mayManage
+      ? buildScheduleForm(view)
+      : renderRoleNotice('Creating or changing a schedule requires the Admin role.'),
+  );
 
   const listHolder = el('div', {});
   view.appendChild(listHolder);
@@ -1638,7 +1815,10 @@ async function renderSchedulesPage(view) {
   clearNode(listHolder);
   if (schedules.length === 0) {
     listHolder.appendChild(
-      renderEmptyState('No schedules yet.', 'Create one above to scan a path on a fixed interval.'),
+      renderEmptyState(
+        'No schedules yet.',
+        mayManage ? 'Create one above to scan a path on a fixed interval.' : undefined,
+      ),
     );
     return;
   }
@@ -1649,7 +1829,7 @@ async function renderSchedulesPage(view) {
     el('th', { scope: 'col' }, 'Status'),
     el('th', { scope: 'col' }, 'Next run'),
     el('th', { scope: 'col' }, 'Last run'),
-    el('th', { scope: 'col' }, 'Actions'),
+    mayManage ? el('th', { scope: 'col' }, 'Actions') : null,
   ]);
   const tbody = el('tbody');
   for (const schedule of schedules) {
@@ -1669,39 +1849,50 @@ async function renderSchedulesPage(view) {
       lastRunCell.textContent = '—';
     }
 
-    const toggleBtn = el(
-      'button',
-      { type: 'button', class: 'btn btn--secondary btn--small' },
-      enabled ? 'Disable' : 'Enable',
-    );
-    toggleBtn.addEventListener('click', async () => {
-      toggleBtn.disabled = true;
-      try {
-        await api.updateSchedule(id, { enabled: !enabled });
-        renderSchedulesPage(view);
-      } catch (error) {
-        toggleBtn.disabled = false;
-        toggleBtn.textContent = 'Retry';
-        toggleBtn.title = error && error.message ? error.message : String(error);
-      }
-    });
+    // Mutating controls exist only for an admin; for anyone else the column is
+    // absent entirely rather than present-but-disabled.
+    let actionsCell = null;
+    if (mayManage) {
+      const toggleBtn = el(
+        'button',
+        { type: 'button', class: 'btn btn--secondary btn--small' },
+        enabled ? 'Disable' : 'Enable',
+      );
+      toggleBtn.addEventListener('click', async () => {
+        toggleBtn.disabled = true;
+        try {
+          await api.updateSchedule(id, { enabled: !enabled });
+          renderSchedulesPage(view);
+        } catch (error) {
+          toggleBtn.disabled = false;
+          toggleBtn.textContent = 'Retry';
+          toggleBtn.title = error && error.message ? error.message : String(error);
+        }
+      });
 
-    const deleteBtn = el(
-      'button',
-      { type: 'button', class: 'btn btn--secondary btn--small btn--danger' },
-      'Delete',
-    );
-    deleteBtn.addEventListener('click', async () => {
-      if (!window.confirm('Delete this schedule?')) return;
-      deleteBtn.disabled = true;
-      try {
-        await api.deleteSchedule(id);
-        renderSchedulesPage(view);
-      } catch (error) {
-        deleteBtn.disabled = false;
-        deleteBtn.title = error && error.message ? error.message : String(error);
-      }
-    });
+      const deleteBtn = el(
+        'button',
+        { type: 'button', class: 'btn btn--secondary btn--small btn--danger' },
+        'Delete',
+      );
+      deleteBtn.addEventListener('click', async () => {
+        if (!window.confirm('Delete this schedule?')) return;
+        deleteBtn.disabled = true;
+        try {
+          await api.deleteSchedule(id);
+          renderSchedulesPage(view);
+        } catch (error) {
+          deleteBtn.disabled = false;
+          deleteBtn.title = error && error.message ? error.message : String(error);
+        }
+      });
+
+      actionsCell = el(
+        'td',
+        {},
+        el('div', { class: 'row-actions' }, id ? [toggleBtn, deleteBtn] : []),
+      );
+    }
 
     tbody.appendChild(
       el('tr', {}, [
@@ -1718,12 +1909,281 @@ async function renderSchedulesPage(view) {
         ),
         el('td', { text: formatDate(schedule && schedule.nextRunAt) }),
         lastRunCell,
-        el('td', {}, el('div', { class: 'row-actions' }, id ? [toggleBtn, deleteBtn] : [])),
+        actionsCell,
       ]),
     );
   }
   const table = el('table', { class: 'data-table' }, [el('thead', {}, headRow), tbody]);
   listHolder.appendChild(el('div', { class: 'table-scroll' }, table));
+}
+
+// ---------------------------------------------------------------------------
+// Users (admin only)
+// ---------------------------------------------------------------------------
+
+const ROLE_OPTIONS = [
+  { value: 'viewer', label: 'Viewer — read only' },
+  { value: 'operator', label: 'Operator — read and start scans' },
+  { value: 'admin', label: 'Admin — full access' },
+];
+
+/**
+ * Show a freshly issued token. The API returns it exactly once (it stores only
+ * a hash), so this is the only chance to copy it — hence the standing panel
+ * with an explicit warning rather than a transient toast. The value is put in a
+ * readonly input via textContent-equivalent DOM APIs, never innerHTML.
+ */
+function buildTokenReveal(heading, token) {
+  const field = el('input', {
+    type: 'text',
+    readonly: true,
+    class: 'token-reveal__value mono',
+    'aria-label': 'One-time API token',
+  });
+  field.value = token;
+
+  const status = el('p', { class: 'form-status', role: 'status' });
+  const copyBtn = el('button', { type: 'button', class: 'btn btn--primary' }, 'Copy');
+  copyBtn.addEventListener('click', async () => {
+    field.focus();
+    field.select();
+    try {
+      await navigator.clipboard.writeText(token);
+      status.textContent = 'Copied to the clipboard.';
+    } catch {
+      // Clipboard access can be denied or unavailable (insecure context); the
+      // token is selected, so copying by hand still works.
+      status.textContent = 'Could not copy automatically — the token is selected, copy it now.';
+    }
+  });
+
+  return el('div', { class: 'panel token-reveal', role: 'alert' }, [
+    el('h2', { text: heading }),
+    el('p', {
+      class: 'token-reveal__warning',
+      text:
+        'Copy this token now — it will not be shown again. The server keeps only a hash of it, ' +
+        'so it cannot be recovered; issue a new one with Rotate if it is lost.',
+    }),
+    el('div', { class: 'token-reveal__row' }, [field, copyBtn]),
+    status,
+  ]);
+}
+
+function buildUserForm(onCreated) {
+  const nameInput = el('input', {
+    id: 'new-user-name',
+    type: 'text',
+    placeholder: 'e.g. CI pipeline',
+    autocomplete: 'off',
+    maxlength: '64',
+  });
+  const roleSelect = el('select', { id: 'new-user-role' });
+  for (const option of ROLE_OPTIONS) {
+    roleSelect.appendChild(el('option', { value: option.value }, option.label));
+  }
+  const status = el('p', { class: 'form-status', role: 'status' });
+  const submit = el('button', { type: 'submit', class: 'btn btn--primary' }, 'Create User');
+
+  const form = el('form', { class: 'filters', onsubmit: (event) => event.preventDefault() }, [
+    el('div', { class: 'field' }, [el('label', { for: 'new-user-name', text: 'Name' }), nameInput]),
+    el('div', { class: 'field' }, [
+      el('label', { for: 'new-user-role', text: 'Role' }),
+      roleSelect,
+    ]),
+    submit,
+    status,
+  ]);
+
+  form.addEventListener('submit', async () => {
+    const name = nameInput.value.trim();
+    if (!name) {
+      status.textContent = 'Enter a name for this user.';
+      return;
+    }
+    submit.disabled = true;
+    status.textContent = 'Creating user…';
+    let created;
+    try {
+      created = await api.createUser({ name, role: roleSelect.value });
+    } catch (error) {
+      submit.disabled = false;
+      status.textContent = `Could not create user: ${error && error.message ? error.message : error}`;
+      return;
+    }
+    submit.disabled = false;
+    nameInput.value = '';
+    status.textContent = '';
+    onCreated(created);
+  });
+
+  return form;
+}
+
+async function renderUsersPage(view) {
+  const generation = renderGeneration;
+  clearNode(view);
+  view.appendChild(el('div', { class: 'page-header' }, el('h1', { text: 'Users' })));
+
+  if (!can(currentRole(), 'manageUsers')) {
+    view.appendChild(renderRoleNotice('Managing users requires the Admin role.'));
+    return;
+  }
+
+  view.appendChild(
+    el('p', {
+      class: 'page-intro',
+      text:
+        'Each user authenticates with their own bearer token. Tokens are shown once when issued ' +
+        'or rotated and are stored only as hashes — there are no passwords.',
+    }),
+  );
+
+  // The reveal box lives outside the list so refreshing the list after a create
+  // or rotate never wipes a token the admin has not copied yet.
+  const revealHolder = el('div', {});
+  const listHolder = el('div', {});
+
+  async function refreshList() {
+    clearNode(listHolder);
+    listHolder.appendChild(el('p', { class: 'loading', role: 'status', text: 'Loading users…' }));
+    let users;
+    try {
+      users = asList(await api.users(), 'users');
+    } catch (error) {
+      if (generation !== renderGeneration) return;
+      clearNode(listHolder);
+      listHolder.appendChild(renderErrorPanel(error, refreshList));
+      return;
+    }
+    if (generation !== renderGeneration) return;
+
+    clearNode(listHolder);
+    if (users.length === 0) {
+      listHolder.appendChild(
+        renderEmptyState(
+          'No users yet.',
+          'The bootstrap token still works as the root administrator.',
+        ),
+      );
+      return;
+    }
+    listHolder.appendChild(buildUsersTable(users, revealHolder, refreshList));
+  }
+
+  const form = buildUserForm((created) => {
+    clearNode(revealHolder);
+    revealHolder.appendChild(
+      buildTokenReveal(`Token for ${formatUserRow(created).name}`, created.token),
+    );
+    revealHolder.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    refreshList();
+  });
+
+  view.appendChild(form);
+  view.appendChild(revealHolder);
+  view.appendChild(listHolder);
+  await refreshList();
+}
+
+function buildUsersTable(users, revealHolder, refreshList) {
+  const headRow = el('tr', {}, [
+    el('th', { scope: 'col' }, 'Name'),
+    el('th', { scope: 'col' }, 'Role'),
+    el('th', { scope: 'col' }, 'Created'),
+    el('th', { scope: 'col' }, 'Status'),
+    el('th', { scope: 'col' }, 'Actions'),
+  ]);
+
+  const tbody = el('tbody');
+  for (const user of users) {
+    const row = formatUserRow(user);
+
+    const rotateBtn = el(
+      'button',
+      { type: 'button', class: 'btn btn--secondary btn--small' },
+      'Rotate token',
+    );
+    rotateBtn.addEventListener('click', async () => {
+      if (
+        !window.confirm(
+          `Issue a new token for ${row.name}? Their current token stops working immediately.`,
+        )
+      ) {
+        return;
+      }
+      rotateBtn.disabled = true;
+      try {
+        const rotated = await api.rotateUserToken(row.id);
+        clearNode(revealHolder);
+        revealHolder.appendChild(
+          buildTokenReveal(`New token for ${row.name}`, (rotated && rotated.token) || ''),
+        );
+        revealHolder.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      } catch (error) {
+        rotateBtn.title = error && error.message ? error.message : String(error);
+      }
+      rotateBtn.disabled = false;
+    });
+
+    const toggleBtn = el(
+      'button',
+      { type: 'button', class: 'btn btn--secondary btn--small' },
+      row.disabled ? 'Enable' : 'Disable',
+    );
+    toggleBtn.addEventListener('click', async () => {
+      toggleBtn.disabled = true;
+      try {
+        await api.updateUser(row.id, { disabled: !row.disabled });
+        await refreshList();
+      } catch (error) {
+        toggleBtn.disabled = false;
+        toggleBtn.title = error && error.message ? error.message : String(error);
+      }
+    });
+
+    const deleteBtn = el(
+      'button',
+      { type: 'button', class: 'btn btn--secondary btn--small btn--danger' },
+      'Delete',
+    );
+    deleteBtn.addEventListener('click', async () => {
+      if (!window.confirm(`Delete ${row.name}? Their token stops working immediately.`)) return;
+      deleteBtn.disabled = true;
+      try {
+        await api.deleteUser(row.id);
+        await refreshList();
+      } catch (error) {
+        deleteBtn.disabled = false;
+        deleteBtn.title = error && error.message ? error.message : String(error);
+      }
+    });
+
+    tbody.appendChild(
+      el('tr', {}, [
+        el('td', { text: row.name }),
+        el('td', {}, el('span', { class: 'badge role-badge', text: row.roleLabel })),
+        el('td', { text: row.createdAt ? formatDate(row.createdAt) : '—' }),
+        el(
+          'td',
+          {},
+          el(
+            'span',
+            { class: `badge ${row.disabled ? 'status-unknown' : 'status-completed'}` },
+            row.status,
+          ),
+        ),
+        el(
+          'td',
+          {},
+          el('div', { class: 'row-actions' }, row.id ? [rotateBtn, toggleBtn, deleteBtn] : []),
+        ),
+      ]),
+    );
+  }
+
+  const table = el('table', { class: 'data-table' }, [el('thead', {}, headRow), tbody]);
+  return el('div', { class: 'table-scroll' }, table);
 }
 
 function renderSettingsPage(view) {
@@ -1787,18 +2247,20 @@ function renderSettingsPage(view) {
     statusArea,
   ]);
 
+  // A changed token means a possibly different role, so the cached identity is
+  // dropped and re-resolved before the chrome (Users nav, indicator) updates.
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     saveSettings({ baseUrl: baseUrlInput.value.trim(), token: tokenInput.value });
     statusArea.textContent = 'Settings saved.';
-    updateConnectionIndicator();
+    void refreshIdentity();
   });
   clearBtn.addEventListener('click', () => {
     clearSettings();
     baseUrlInput.value = '';
     tokenInput.value = '';
     statusArea.textContent = 'Settings cleared.';
-    updateConnectionIndicator();
+    void refreshIdentity();
   });
   testBtn.addEventListener('click', async () => {
     statusArea.textContent = 'Testing…';
@@ -1853,6 +2315,11 @@ async function render() {
   const top = segments[0] || 'dashboard';
   updateActiveNav(top);
 
+  // Resolve the caller's role before rendering, so every page gates on a known
+  // value instead of flashing controls it then has to remove.
+  await loadIdentity();
+  updateRoleChrome();
+
   const view = document.getElementById('view');
   if (!view) return;
   clearNode(view);
@@ -1879,6 +2346,9 @@ async function render() {
       break;
     case 'reports':
       await renderReportsPage(view, query);
+      break;
+    case 'users':
+      await renderUsersPage(view);
       break;
     case 'settings':
       renderSettingsPage(view);

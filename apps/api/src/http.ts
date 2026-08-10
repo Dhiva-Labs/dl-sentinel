@@ -37,6 +37,20 @@ export function notFound(message = 'Not found'): HttpError {
 }
 
 /**
+ * The caller authenticated but their role does not permit this request. Kept
+ * distinct from 401 (missing, invalid, or disabled token) so a client can tell
+ * "set a token" apart from "you may not do this". Naming the required role is
+ * not a leak — the permission matrix is public in docs/api.md.
+ */
+export function forbidden(required: string): HttpError {
+  return new HttpError(
+    403,
+    'forbidden',
+    `Your role does not permit this request (requires role: ${required})`,
+  );
+}
+
+/**
  * A scan exists but has not completed, so a finished-report endpoint cannot serve
  * it. Applies to queued/running (retry later) and failed (no report will exist);
  * the current status is included so callers can decide what to do.

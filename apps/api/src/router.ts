@@ -3,7 +3,9 @@ import type { Finding, ReportFormat, Severity } from '@dl-sentinel/core';
 import { SEVERITY_ORDER } from '@dl-sentinel/core';
 import { BUILTIN_SCANNERS } from '@dl-sentinel/preset';
 import { renderReport } from '@dl-sentinel/reporting';
+import { generateUserToken, hashToken } from './auth.js';
 import {
+  forbidden,
   HttpError,
   methodNotAllowed,
   notFound,
@@ -13,17 +15,22 @@ import {
   sendNoContent,
   sendText,
 } from './http.js';
+import { isUserRole, MAX_USER_NAME_LENGTH, requiredRoleFor, roleAtLeast } from './permissions.js';
 import type { ScanQueue } from './queue.js';
 import { resolveScanTarget } from './scan-path.js';
 import type { ReportStore } from './store.js';
 import type {
   ApiRule,
+  AuthContext,
   HistoryEntry,
+  PublicUser,
   ScanRecord,
   ScheduleRecord,
   ServerLogger,
   SentinelRuntime,
   TrendPoint,
+  UserRecord,
+  UserRole,
 } from './types.js';
 
 export interface HandlerContext {
@@ -34,6 +41,8 @@ export interface HandlerContext {
   store: ReportStore;
   queue: ScanQueue;
   logger: ServerLogger;
+  /** The authenticated caller, resolved by the server before routing. */
+  auth: AuthContext;
   /** Injected clock, shared with the scheduler; drives `nextRunAt` arithmetic. */
   now: () => number;
 }
@@ -295,6 +304,136 @@ function toTrendPoint(scan: ScanRecord): TrendPoint {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Users (admin only) and /api/me
+// ---------------------------------------------------------------------------
+
+/**
+ * Project a stored user for the wire. Built field by field on purpose: a spread
+ * of {@link UserRecord} would carry `tokenHash` into the response, so this is
+ * the single place that decides what a user looks like over HTTP.
+ */
+function toPublicUser(user: UserRecord): PublicUser {
+  return {
+    id: user.id,
+    name: user.name,
+    role: user.role,
+    createdAt: user.createdAt,
+    disabled: user.disabled === true,
+  };
+}
+
+function requireJsonObject(body: unknown): Record<string, unknown> {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new HttpError(400, 'validation_error', 'Request body must be a JSON object');
+  }
+  return body as Record<string, unknown>;
+}
+
+function validateUserName(value: unknown): string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new HttpError(
+      400,
+      'validation_error',
+      'Body field "name" is required and must be a non-empty string',
+    );
+  }
+  const name = value.trim();
+  if (name.length > MAX_USER_NAME_LENGTH) {
+    throw new HttpError(
+      400,
+      'validation_error',
+      `"name" must be at most ${MAX_USER_NAME_LENGTH} characters`,
+    );
+  }
+  return name;
+}
+
+function validateRole(value: unknown): UserRole {
+  if (!isUserRole(value)) {
+    throw new HttpError(
+      400,
+      'validation_error',
+      '"role" is required and must be one of: admin, operator, viewer',
+    );
+  }
+  return value;
+}
+
+/** Look a user up by id, or 404. Root is not a record, so `/root` 404s here. */
+function requireUser(ctx: HandlerContext, id: string): UserRecord {
+  const user = ctx.store.getUser(id);
+  if (user === undefined) throw notFound('User not found');
+  return user;
+}
+
+/**
+ * Create a user. The generated token is returned here and **only** here (plus
+ * the matching rotate response) — the server keeps just its SHA-256 hash, so it
+ * cannot be shown again even to an admin.
+ */
+async function createUser(ctx: HandlerContext): Promise<void> {
+  const record = requireJsonObject(await readJsonBody(ctx.req, ctx.runtime.maxBodyBytes));
+  const name = validateUserName(record['name']);
+  const role = validateRole(record['role']);
+
+  const token = generateUserToken();
+  const created = ctx.store.createUser({ name, role, tokenHash: hashToken(token) });
+  sendJson(ctx.res, 201, {
+    id: created.id,
+    name: created.name,
+    role: created.role,
+    createdAt: created.createdAt,
+    token,
+  });
+}
+
+function listUsers(ctx: HandlerContext): void {
+  sendJson(ctx.res, 200, ctx.store.listUsers().map(toPublicUser));
+}
+
+function getUserById(ctx: HandlerContext, id: string): void {
+  sendJson(ctx.res, 200, toPublicUser(requireUser(ctx, id)));
+}
+
+/** Change a user's role and/or disable them. A disabled user's token 401s. */
+async function patchUser(ctx: HandlerContext, id: string): Promise<void> {
+  const existing = requireUser(ctx, id);
+  const patch = requireJsonObject(await readJsonBody(ctx.req, ctx.runtime.maxBodyBytes));
+
+  const updated: UserRecord = { ...existing };
+  if (patch['role'] !== undefined) updated.role = validateRole(patch['role']);
+  if (patch['disabled'] !== undefined) {
+    if (typeof patch['disabled'] !== 'boolean') {
+      throw new HttpError(400, 'validation_error', '"disabled" must be a boolean');
+    }
+    updated.disabled = patch['disabled'];
+  }
+  ctx.store.updateUser(updated);
+  sendJson(ctx.res, 200, toPublicUser(updated));
+}
+
+function deleteUserById(ctx: HandlerContext, id: string): void {
+  if (!ctx.store.deleteUser(id)) throw notFound('User not found');
+  sendNoContent(ctx.res);
+}
+
+/**
+ * Issue a fresh token for a user. The stored hash is replaced, so the previous
+ * token stops authenticating the moment this returns; the new one is shown once.
+ */
+function rotateUserToken(ctx: HandlerContext, id: string): void {
+  const existing = requireUser(ctx, id);
+  const token = generateUserToken();
+  ctx.store.updateUser({ ...existing, tokenHash: hashToken(token) });
+  sendJson(ctx.res, 200, { token });
+}
+
+/** The calling identity, for any valid token. The dashboard role-gates on this. */
+function getMe(ctx: HandlerContext): void {
+  sendJson(ctx.res, 200, { name: ctx.auth.name, role: ctx.auth.role });
+}
+
 function getHistory(ctx: HandlerContext): void {
   const target = ctx.url.searchParams.get('target') ?? undefined;
   const limit = parseLimit(ctx.url.searchParams.get('limit'));
@@ -311,8 +450,12 @@ function getTrends(ctx: HandlerContext): void {
 }
 
 /**
- * Dispatch an authenticated `/api/*` request. Path parameters are matched by
- * segment; unknown paths are 404 and wrong methods on known paths are 405.
+ * Dispatch an authenticated `/api/*` request. The caller's role is checked
+ * first, against the matrix in `permissions.ts` — an under-privileged caller
+ * gets `403 { error: { code: "forbidden" } }` before any handler runs, so no
+ * work happens (and nothing is disclosed) on a request they may not make.
+ * Path parameters are then matched by segment; unknown paths are 404 and wrong
+ * methods on known paths are 405.
  */
 export async function routeApi(ctx: HandlerContext): Promise<void> {
   const method = ctx.req.method ?? 'GET';
@@ -323,6 +466,28 @@ export async function routeApi(ctx: HandlerContext): Promise<void> {
   const rest = segments.slice(1); // drop the leading "api"
   const [first, second, third] = rest;
 
+  const required = requiredRoleFor(method, rest);
+  if (!roleAtLeast(ctx.auth.role, required)) throw forbidden(required);
+
+  if (rest.length === 1 && first === 'me') {
+    if (method !== 'GET') throw methodNotAllowed('GET');
+    return getMe(ctx);
+  }
+  if (rest.length === 1 && first === 'users') {
+    if (method === 'GET') return listUsers(ctx);
+    if (method === 'POST') return createUser(ctx);
+    throw methodNotAllowed('GET, POST');
+  }
+  if (rest.length === 2 && first === 'users' && second !== undefined) {
+    if (method === 'GET') return getUserById(ctx, second);
+    if (method === 'PATCH') return patchUser(ctx, second);
+    if (method === 'DELETE') return deleteUserById(ctx, second);
+    throw methodNotAllowed('GET, PATCH, DELETE');
+  }
+  if (rest.length === 3 && first === 'users' && second !== undefined && third === 'rotate') {
+    if (method !== 'POST') throw methodNotAllowed('POST');
+    return rotateUserToken(ctx, second);
+  }
   if (rest.length === 1 && first === 'scans') {
     if (method === 'GET') return listScans(ctx);
     if (method === 'POST') return createScan(ctx);

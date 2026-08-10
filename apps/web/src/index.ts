@@ -8,3 +8,4 @@ export * from './stats.js';
 export * from './scan-status.js';
 export * from './trend.js';
 export * from './schedule.js';
+export * from './rbac.js';
