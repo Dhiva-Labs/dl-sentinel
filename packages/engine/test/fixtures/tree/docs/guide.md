@@ -1,0 +1,3 @@
+# Guide
+
+Fixture documentation file.
