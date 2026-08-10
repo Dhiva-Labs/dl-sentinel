@@ -192,6 +192,74 @@ describe('loadConfig: unknown keys', () => {
   });
 });
 
+describe('loadConfig: suppress', () => {
+  it('defaults suppress to an empty list', async () => {
+    const dir = await tempDirWith({ 'sentinel.yml': 'maxFileSizeBytes: 2048\n' });
+    const config = await loadConfig(dir);
+    expect(config.suppress).toEqual([]);
+  });
+
+  it('parses a list of suppression rules, keeping only known string fields', async () => {
+    const dir = await tempDirWith({
+      'sentinel.yml': [
+        'suppress:',
+        '  - rule: S001',
+        "    path: '**/*.test.env'",
+        '    reason: fake keys used in tests',
+        '    expires: 2027-01-01',
+        '  - id: 9f2c4a1b8d3e6f70',
+        '',
+      ].join('\n'),
+    });
+
+    const config = await loadConfig(dir);
+
+    expect(config.suppress).toEqual([
+      {
+        rule: 'S001',
+        path: '**/*.test.env',
+        reason: 'fake keys used in tests',
+        expires: '2027-01-01',
+      },
+      { id: '9f2c4a1b8d3e6f70' },
+    ]);
+  });
+
+  it('does not warn about the known suppress key', async () => {
+    const dir = await tempDirWith({ 'sentinel.yml': 'suppress:\n  - rule: S001\n' });
+    const logger = recordingLogger();
+    await loadConfigWithLogger(dir, undefined, logger);
+    expect(logger.of('warn')).toEqual([]);
+  });
+
+  it('warns and ignores a non-list suppress value', async () => {
+    const dir = await tempDirWith({ 'sentinel.yml': 'suppress: nope\n' });
+    const logger = recordingLogger();
+
+    const config = await loadConfigWithLogger(dir, undefined, logger);
+
+    expect(config.suppress).toEqual([]);
+    expect(logger.of('warn').some((m) => m.includes('"suppress" must be a list'))).toBe(true);
+  });
+
+  it('warns and skips a malformed entry but keeps the valid ones', async () => {
+    const dir = await tempDirWith({
+      'sentinel.yml': ['suppress:', '  - rule: S001', '  - just-a-string', '  - id: 42', ''].join(
+        '\n',
+      ),
+    });
+    const logger = recordingLogger();
+
+    const config = await loadConfigWithLogger(dir, undefined, logger);
+
+    // The middle (scalar) entry is dropped; the numeric id is a non-string and
+    // its entry is dropped too, leaving only the well-formed first rule.
+    expect(config.suppress).toEqual([{ rule: 'S001' }]);
+    expect(logger.of('warn').some((m) => m.includes('suppress[1]'))).toBe(true);
+    expect(logger.of('warn').some((m) => m.includes('suppress[2].id'))).toBe(true);
+  });
+});
+
 describe('loadConfig: rejects invalid input', () => {
   it('throws on unparseable YAML, naming the file', async () => {
     const dir = await tempDirWith({ 'sentinel.yml': 'include: [oops\n  - broken: : :\n' });
