@@ -89,6 +89,22 @@ async function scan(context: ScanContext): Promise<Finding[]> {
   return sortFindings(findings);
 }
 
+// Infrastructure graph (docs/architecture.md "## Infrastructure graph"):
+// a deterministic model of the deployment surface, built from the same
+// parses `infraScanner` uses. Named exports only — the default export
+// below (the ScannerPlugin contract) is unaffected.
+export type {
+  GraphEdge,
+  GraphEdgeKind,
+  GraphNode,
+  GraphNodeAttrs,
+  GraphNodeKind,
+  GraphNodeSource,
+  InfraGraph,
+  InfraGraphFile,
+} from './graph/index.js';
+export { buildInfraGraph, renderInfraGraphMermaid, escapeMermaidLabel } from './graph/index.js';
+
 export const infraScanner: ScannerPlugin = {
   id: SCANNER_ID,
   name: 'Infrastructure Scanner',
