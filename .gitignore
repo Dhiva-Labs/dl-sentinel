@@ -5,6 +5,9 @@ node_modules/
 dist/
 *.tsbuildinfo
 coverage/
+# The action bundle is generated (npm run bundle:action) and committed only on
+# release tags, never on main — see docs/releasing.md.
+apps/action/bundle/
 
 # Runtime data (API server storage, local scan output)
 .dl-sentinel/

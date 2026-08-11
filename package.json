@@ -19,12 +19,14 @@
     "test:watch": "vitest",
     "typecheck": "tsc -b",
     "typecheck:tests": "tsc -p tsconfig.tests.json",
+    "bundle:action": "npm run build && ncc build apps/action/dist/main.js -o apps/action/bundle --minify --no-source-map-register",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "npm run format:check && npm run typecheck && npm run typecheck:tests"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@vercel/ncc": "^0.44.1",
     "prettier": "^3.3.0",
     "typescript": "^5.6.0",
     "vitest": "^3.0.0"

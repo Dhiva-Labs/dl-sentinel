@@ -31,6 +31,9 @@ real does: `npm run build` first, then `node apps/cli/dist/main.js`.
 - No placeholder or tautological tests. Every scanner rule ships a positive and a negative
   fixture.
 - Zero new dependencies without lead approval. Approved runtime deps today: `yaml`.
+  Approved build-time-only deps: `@vercel/ncc` — bundles `apps/action` into the single
+  self-contained file a `node20` GitHub Action must run from a tag (see
+  [releasing](releasing.md)); it ships nothing at runtime.
 - Do not commit: build output, `node_modules`, editor/agent state, environment files,
   `package-lock.json` changes from feature branches (the lead regenerates the lockfile at
   integration).

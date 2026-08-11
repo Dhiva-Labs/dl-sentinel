@@ -43,26 +43,13 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           path: .sentinel-base
 
-      # Built from source: this is a workspace monorepo whose action entry
-      # imports its sibling packages, so there is no bundled, self-contained
-      # dist/ to reference as `uses:` yet. Pin `ref:` to a reviewed tag/commit.
-      - uses: actions/checkout@v4
+      # Release tags ship a self-contained bundle, so no install or build step
+      # is needed. Always pin to a tag you have reviewed.
+      - uses: Dhiva-Labs/dl-sentinel/apps/action@v0.1.0
         with:
-          repository: Dhiva-Labs/dl-sentinel
-          ref: main
-          path: .sentinel-tool
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - working-directory: .sentinel-tool
-        run: npm ci && npm run build
-
-      - run: node .sentinel-tool/apps/action/dist/main.js
-        env:
-          INPUT_PATH: .
-          INPUT_BASE_PATH: .sentinel-base
-          INPUT_FAIL_ON: critical,high
-          GITHUB_TOKEN: ${{ github.token }}
+          path: .
+          base_path: .sentinel-base
+          fail_on: critical,high
 
       - if: always()
         continue-on-error: true
@@ -75,8 +62,8 @@ A ready-to-copy version lives at [`examples/pull-request.yml`](examples/pull-req
 
 ## Inputs
 
-Inputs are declared in [`action.yml`](action.yml), so they work as `with:` keys whenever this
-is consumed as a `uses:` action. When running it directly as a Node program (the usage above),
+Inputs are declared in [`action.yml`](action.yml) and passed as `with:` keys. When running the
+action directly as a Node program instead (see [Running it manually](#running-it-manually)),
 pass each one as the matching `INPUT_` environment variable — `path` → `INPUT_PATH`,
 `fail_on` → `INPUT_FAIL_ON`, and so on.
 
@@ -142,10 +129,14 @@ DL Sentinel is offline-first, and this action preserves that:
   network call at all. A comment failure is logged and never fails the check.
 - **Secrets never leak.** Findings are redacted at creation time; the PR comment, Step Summary,
   and SARIF render only redacted fields, and the comment omits evidence entirely.
-- **No new dependencies.** The action is pure Node 20 (`fetch`, `node:fs`, `node:path`) — no
-  `@actions/*`, no Octokit.
+- **No runtime dependencies.** The action is pure Node 20 (`fetch`, `node:fs`, `node:path`) —
+  no `@actions/*`, no Octokit. The published bundle is produced by `ncc`, a build-time-only
+  tool, so nothing extra ships at runtime.
 
-## Local dry run
+## Running it manually
+
+The action is an ordinary Node program, so it runs outside GitHub Actions too — useful for
+another CI system, or for trying it locally. Pass inputs as `INPUT_*` environment variables.
 
 ```bash
 npm run build

@@ -58,4 +58,8 @@ outputs:
 
 runs:
   using: 'node20'
-  main: 'dist/main.js'
+  # A self-contained bundle produced by `npm run bundle:action` (ncc). It is
+  # published on release tags only — `main` is kept free of build output — so
+  # `uses: Dhiva-Labs/dl-sentinel/apps/action@<tag>` resolves without an install
+  # or build step, while a checkout of `main` has no bundle to go stale.
+  main: 'bundle/index.js'

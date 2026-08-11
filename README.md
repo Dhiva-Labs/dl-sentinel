@@ -137,6 +137,7 @@ See [docs/architecture.md](docs/architecture.md) for the full design and data fl
 - [Attack paths](docs/attack-paths.md)
 - [Plugins](docs/plugins.md)
 - [Contributing](docs/contributing.md)
+- [Releasing](docs/releasing.md)
 - [Security](docs/security.md)
 - [Architecture](docs/architecture.md)
 - [Scanner interface](docs/scanner-interface.md)
