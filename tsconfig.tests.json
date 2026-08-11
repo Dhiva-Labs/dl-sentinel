@@ -12,6 +12,7 @@
       "@dl-sentinel/engine": ["packages/engine/src/index.ts"],
       "@dl-sentinel/reporting": ["packages/reporting/src/index.ts"],
       "@dl-sentinel/preset": ["packages/preset/src/index.ts"],
+      "@dl-sentinel/attack-paths": ["packages/attack-paths/src/index.ts"],
       "@dl-sentinel/scanner-secrets": ["scanners/secrets/src/index.ts"],
       "@dl-sentinel/scanner-dependencies": ["scanners/dependencies/src/index.ts"],
       "@dl-sentinel/scanner-source": ["scanners/source/src/index.ts"],

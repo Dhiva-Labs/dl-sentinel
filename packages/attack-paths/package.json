@@ -1,0 +1,22 @@
+{
+  "name": "@dl-sentinel/attack-paths",
+  "version": "0.1.0",
+  "description": "DL Sentinel attack-path analysis: correlates findings and the infrastructure graph into candidate attack chains",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@dl-sentinel/core": "*",
+    "@dl-sentinel/scanner-infra": "*"
+  }
+}

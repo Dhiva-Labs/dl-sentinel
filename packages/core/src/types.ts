@@ -188,6 +188,40 @@ export interface Report {
    * notification) apply the target's own policy instead of assuming defaults.
    */
   policy?: PolicyConfig;
+  /**
+   * Correlated attack-path candidates, present only when path analysis was
+   * requested (e.g. `sentinel scan --paths`). See @dl-sentinel/attack-paths.
+   */
+  attackPaths?: AttackPath[];
+}
+
+/** One step in a correlated attack path. */
+export interface AttackPathStep {
+  /** Fingerprint id of the finding this step is built on. */
+  findingId: string;
+  ruleId: string;
+  file: string;
+  /** The step's role in the chain. */
+  role: 'entry' | 'escalation' | 'impact';
+  /** One-line description of what this step contributes to the chain. */
+  note: string;
+}
+
+/**
+ * A candidate chain of findings that could combine into a larger compromise.
+ * Produced by @dl-sentinel/attack-paths from a completed report (plus the
+ * infrastructure graph when available). Paths propose review-worthy
+ * combinations — they NEVER claim exploitability, confidence is never above
+ * 'likely', and narratives use "could allow" language.
+ */
+export interface AttackPath {
+  /** Correlation rule id, namespaced AP (e.g. "AP001"). */
+  id: string;
+  title: string;
+  severity: Severity;
+  confidence: Confidence;
+  steps: AttackPathStep[];
+  narrative: string;
 }
 
 export type ReportFormat = 'terminal' | 'json' | 'markdown' | 'sarif';
