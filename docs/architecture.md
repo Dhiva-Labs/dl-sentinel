@@ -337,6 +337,50 @@ Unknown keys produce warnings, not errors. Defaults come from `defaultConfig()` 
 | A      | api            | A001    |
 | SC     | smart-contract | SC001   |
 
+## Plugins (external scanners)
+
+Third-party scanners load as plugins: a module whose **default export is a `ScannerPlugin`**
+(the same contract as built-ins; naming convention `dl-sentinel-plugin-<name>`).
+
+**Trust boundary (binding).** A plugin is operator-chosen executable code. Plugins load ONLY
+from explicit operator input: the CLI's repeatable `--plugin <path-or-package>` flag or the API
+server's `SENTINEL_PLUGINS` env (comma-separated specs). They are NEVER loaded from
+configuration files — not even an explicit `--config` file — because config can live inside
+the scanned repository, and the scanned repository must never be able to execute code via the
+scanner. A `plugins` key found in any `sentinel.yml` is ignored with a warning.
+
+Loading (`loadScannerPlugin(spec)` in `@dl-sentinel/engine`): dynamic-import the spec (path
+resolved from cwd, or bare package specifier), validate the default export's shape (string
+id/name/version, arrays for categories/supportedFiles/rules, `scan` function; rule ids must be
+namespaced strings), and reject id collisions with built-ins or other plugins. Any load or
+validation failure is a `UsageError` (CLI exit 64; API startup failure). `sentinel plugins
+--plugin <spec>...` lists what would load (id, name, version, rule count, source). Loaded
+plugins appear in `sentinel rules`, `/api/rules`, and reports like any built-in.
+
+## Infrastructure graph
+
+`@dl-sentinel/scanner-infra` additionally exports `buildInfraGraph(files)` — a deterministic
+model of the deployment surface built from the same Dockerfile/Compose/Kubernetes parses the
+scanner uses. Nodes `{ id, kind, label, source {file, line?}, attrs }` with kinds
+`service | workload | container | image | volume | network | hostPath | port`; edges
+`{ from, to, kind }` with kinds `uses-image | mounts | exposes | connects | depends-on |
+host-network | privileged`. The CLI surfaces it as `sentinel graph [path] [--format
+json|mermaid] [--output <file>]` — mermaid output is a flowchart with risk-styled nodes
+(privileged/host-mount highlighted). The graph is descriptive, not a finding source; the
+attack-path analyzer consumes it.
+
+## Attack paths
+
+`@dl-sentinel/attack-paths` correlates a completed `Report` (plus, when available, the infra
+graph) into candidate attack chains: `findAttackPaths(report, graph?)` → `AttackPath[]`
+`{ id, title, severity, confidence, steps: [{ findingId, ruleId, file, role: entry |
+escalation | impact, note }], narrative }`. Correlations are a declared catalog (`AP001`+, each
+with the co-occurrence conditions that must hold), severity is derived from the constituent
+steps, confidence is never above `likely`, and narratives use "could allow" language — the
+analyzer proposes review-worthy chains and NEVER claims exploitability. Surfaced via
+`sentinel scan --paths` (appended section in terminal/markdown; `attackPaths` field in JSON
+output via the optional `Report.attackPaths`).
+
 **Compliance mapping.** `RuleMeta.compliance` optionally maps a rule to established frameworks
 (`cwe: ['CWE-798']`, `owasp: ['A07:2021']` — OWASP Top 10 2021 ids). The binding rule: only
 canonical, well-established mappings are recorded; an uncertain mapping is omitted, never
