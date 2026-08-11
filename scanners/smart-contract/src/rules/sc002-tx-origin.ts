@@ -62,6 +62,12 @@ export const sc002TxOrigin: RuleDefinition = {
       'tx.origin is used inside an authorization condition or assigned for later use in one, which is unsafe against relayed/phished transactions.',
     recommendation: 'Use msg.sender for authorization checks; never tx.origin.',
     references: ['https://swcregistry.io/docs/SWC-115'],
+    // Deliberately NOT the SWC-115 registry's own CWE-477 ("Use of Obsolete
+    // Function") — tx.origin is not obsolete, and that mapping does not match
+    // this weakness. CWE-346 ("Origin Validation Error": the software does not
+    // properly verify the source of a communication) is the accurate fit: the
+    // bug is trusting tx.origin as a spoofable proxy for "who is calling me".
+    compliance: { cwe: ['CWE-346'] },
   },
   evaluate,
 };

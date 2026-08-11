@@ -17,6 +17,7 @@ export interface RuleDef {
   description: string;
   recommendation: string;
   references: string[];
+  compliance?: { cwe?: string[]; owasp?: string[] };
 }
 
 const DOCKER_REFS = ['https://docs.docker.com/engine/reference/builder/'];
@@ -39,6 +40,7 @@ export const RULE_DEFS: readonly RuleDef[] = [
       'Add a non-root USER instruction (with a matching unprivileged user created in the ' +
       'image) as the last user-switching instruction of the final build stage.',
     references: DOCKER_REFS,
+    compliance: { cwe: ['CWE-250'] },
   },
   {
     id: 'I002',
@@ -53,6 +55,7 @@ export const RULE_DEFS: readonly RuleDef[] = [
       'Use COPY for local content, or download with a pinned checksum verification step ' +
       '(e.g. curl + sha256sum check) inside a RUN instruction instead of ADD <url>.',
     references: DOCKER_REFS,
+    compliance: { cwe: ['CWE-494'], owasp: ['A08:2021'] },
   },
   {
     id: 'I003',
@@ -80,6 +83,7 @@ export const RULE_DEFS: readonly RuleDef[] = [
       'Remove the literal value. Pass secrets at runtime (env, mounted file, or a secret ' +
       'manager) rather than baking them into the image.',
     references: DOCKER_REFS,
+    compliance: { cwe: ['CWE-798'], owasp: ['A07:2021'] },
   },
   {
     id: 'I005',
@@ -94,6 +98,7 @@ export const RULE_DEFS: readonly RuleDef[] = [
       'Download the script, verify its checksum or signature, then execute it, instead of ' +
       'piping curl/wget straight into sh/bash.',
     references: DOCKER_REFS,
+    compliance: { cwe: ['CWE-494'], owasp: ['A08:2021'] },
   },
   {
     id: 'I006',
@@ -122,6 +127,7 @@ export const RULE_DEFS: readonly RuleDef[] = [
       'granting the container full access to host devices.',
     recommendation: 'Remove privileged: true; grant only the specific capabilities required.',
     references: COMPOSE_REFS,
+    compliance: { cwe: ['CWE-250'] },
   },
   {
     id: 'I011',
@@ -136,6 +142,7 @@ export const RULE_DEFS: readonly RuleDef[] = [
       'Use the default bridge network (or a user-defined network) and publish only the ports ' +
       'the service needs.',
     references: COMPOSE_REFS,
+    compliance: { cwe: ['CWE-653'], owasp: ['A04:2021'] },
   },
   {
     id: 'I012',
@@ -151,6 +158,7 @@ export const RULE_DEFS: readonly RuleDef[] = [
       'Avoid mounting the Docker socket or host system directories; use named volumes or the ' +
       'narrowest possible host path instead.',
     references: COMPOSE_REFS,
+    compliance: { cwe: ['CWE-668'], owasp: ['A01:2021'] },
   },
   {
     id: 'I013',
@@ -165,6 +173,7 @@ export const RULE_DEFS: readonly RuleDef[] = [
       'Drop ALL capabilities by default and add back only the specific, narrow capability the ' +
       'service actually needs.',
     references: COMPOSE_REFS,
+    compliance: { cwe: ['CWE-250'] },
   },
   {
     id: 'I014',
@@ -179,6 +188,7 @@ export const RULE_DEFS: readonly RuleDef[] = [
       'Use an env_file, secrets:, or an external secret manager instead of a literal value in ' +
       'the compose file.',
     references: COMPOSE_REFS,
+    compliance: { cwe: ['CWE-798'], owasp: ['A07:2021'] },
   },
   {
     id: 'I015',
@@ -191,6 +201,7 @@ export const RULE_DEFS: readonly RuleDef[] = [
       'the host.',
     recommendation: 'Set deploy.resources.limits (cpus, memory) for every service.',
     references: COMPOSE_REFS,
+    compliance: { cwe: ['CWE-400'] },
   },
   {
     id: 'I016',
@@ -205,6 +216,7 @@ export const RULE_DEFS: readonly RuleDef[] = [
       'Bind published database ports to 127.0.0.1 (e.g. "127.0.0.1:5432:5432") or remove the ' +
       'port publication entirely and rely on the compose network.',
     references: COMPOSE_REFS,
+    compliance: { cwe: ['CWE-1327'] },
   },
 
   // ---- Kubernetes (I02x) ----
@@ -219,6 +231,7 @@ export const RULE_DEFS: readonly RuleDef[] = [
       'capabilities of the host.',
     recommendation: 'Remove privileged: true; request only specific capabilities if needed.',
     references: K8S_REFS,
+    compliance: { cwe: ['CWE-250'] },
   },
   {
     id: 'I021',
@@ -233,6 +246,7 @@ export const RULE_DEFS: readonly RuleDef[] = [
       'Remove hostNetwork/hostPID/hostIPC unless the workload genuinely requires host ' +
       'namespace access, and prefer narrower alternatives when it does.',
     references: K8S_REFS,
+    compliance: { cwe: ['CWE-653'], owasp: ['A04:2021'] },
   },
   {
     id: 'I022',
@@ -247,6 +261,7 @@ export const RULE_DEFS: readonly RuleDef[] = [
       'Avoid hostPath volumes; use a PersistentVolumeClaim or another cluster-managed storage ' +
       'mechanism instead.',
     references: K8S_REFS,
+    compliance: { cwe: ['CWE-668'], owasp: ['A01:2021'] },
   },
   {
     id: 'I023',
@@ -261,6 +276,7 @@ export const RULE_DEFS: readonly RuleDef[] = [
       'Set securityContext.runAsNonRoot: true and a non-zero runAsUser at the pod or container ' +
       'level.',
     references: K8S_REFS,
+    compliance: { cwe: ['CWE-250'] },
   },
   {
     id: 'I024',
@@ -273,6 +289,7 @@ export const RULE_DEFS: readonly RuleDef[] = [
       'leaving privilege escalation via setuid binaries possible.',
     recommendation: 'Set securityContext.allowPrivilegeEscalation: false on every container.',
     references: K8S_REFS,
+    compliance: { cwe: ['CWE-250'] },
   },
   {
     id: 'I025',
@@ -287,6 +304,7 @@ export const RULE_DEFS: readonly RuleDef[] = [
       'Drop ALL capabilities and add back only the specific, narrow capability the container ' +
       'actually needs.',
     references: K8S_REFS,
+    compliance: { cwe: ['CWE-250'] },
   },
   {
     id: 'I026',
@@ -298,6 +316,7 @@ export const RULE_DEFS: readonly RuleDef[] = [
       'The container has no resources.limits, so it can consume unbounded node resources.',
     recommendation: 'Set resources.limits (cpu, memory) on every container.',
     references: K8S_REFS,
+    compliance: { cwe: ['CWE-400'] },
   },
   {
     id: 'I027',
@@ -324,6 +343,7 @@ export const RULE_DEFS: readonly RuleDef[] = [
       'Move the value into a Kubernetes Secret and reference it with ' +
       'env[].valueFrom.secretKeyRef.',
     references: K8S_REFS,
+    compliance: { cwe: ['CWE-798'], owasp: ['A07:2021'] },
   },
 
   // ---- Terraform (I03x) ----
@@ -340,6 +360,7 @@ export const RULE_DEFS: readonly RuleDef[] = [
       'Restrict ingress cidr_blocks/cidr_ipv4 to known, narrow ranges (a VPN or bastion CIDR), ' +
       'never 0.0.0.0/0 or ::/0, especially for administrative ports.',
     references: TF_REFS,
+    compliance: { cwe: ['CWE-284'], owasp: ['A01:2021'] },
   },
   {
     id: 'I031',
@@ -353,6 +374,7 @@ export const RULE_DEFS: readonly RuleDef[] = [
       'Remove the public canned ACL; use bucket policies plus S3 Block Public Access for any ' +
       'intentionally public content instead.',
     references: TF_REFS,
+    compliance: { cwe: ['CWE-668'], owasp: ['A01:2021'] },
   },
   {
     id: 'I032',
@@ -367,6 +389,7 @@ export const RULE_DEFS: readonly RuleDef[] = [
       'Remove the literal value; source credentials from a variable, environment-based ' +
       'provider auth, or a secret manager reference instead.',
     references: TF_REFS,
+    compliance: { cwe: ['CWE-798'], owasp: ['A07:2021'] },
   },
   {
     id: 'I033',
@@ -381,6 +404,7 @@ export const RULE_DEFS: readonly RuleDef[] = [
       'Enable encryption at rest for the resource (remove the explicit false, or set it to ' +
       'true) unless there is a documented reason not to.',
     references: TF_REFS,
+    compliance: { cwe: ['CWE-311'], owasp: ['A04:2021'] },
   },
 ];
 
@@ -406,6 +430,7 @@ export function toRuleMetaList(): RuleMeta[] {
       description,
       recommendation,
       references,
+      compliance,
     }) => ({
       id,
       title,
@@ -415,6 +440,7 @@ export function toRuleMetaList(): RuleMeta[] {
       description,
       recommendation,
       references,
+      compliance,
     }),
   );
 }

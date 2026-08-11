@@ -54,6 +54,7 @@ export const c009Cors: RuleModule = {
       'Restrict Access-Control-Allow-Origin to an explicit allowlist of trusted ' +
       'origins, and never combine a wildcard origin with credentialed requests.',
     references: [],
+    compliance: { cwe: ['CWE-942'], owasp: ['A05:2021'] },
   },
   languages: ['js', 'py', 'rb', 'php', 'go', 'java'],
   check(ctx: FileContext) {

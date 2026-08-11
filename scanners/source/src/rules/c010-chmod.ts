@@ -30,6 +30,7 @@ export const c010Chmod: RuleModule = {
       'Use the narrowest mode that works (e.g. 0o600/0o644 for files, 0o700/0o755 for ' +
       'directories); grant group/other write access only when specifically required.',
     references: [],
+    compliance: { cwe: ['CWE-732'] },
   },
   languages: ['js', 'py', 'rb', 'php', 'go', 'java'],
   check(ctx) {

@@ -89,6 +89,7 @@ export const c004Deserialization: RuleModule = {
       'format is unavoidable, sign or encrypt the payload and verify it before ' +
       'deserializing.',
     references: [],
+    compliance: { cwe: ['CWE-502'], owasp: ['A08:2021'] },
   },
   languages: ['py', 'rb', 'php'],
   check(ctx) {

@@ -67,6 +67,10 @@ export const sc005Selfdestruct: RuleDefinition = {
     recommendation:
       'Guard selfdestruct behind an owner/admin-only modifier or an explicit msg.sender check.',
     references: ['https://swcregistry.io/docs/SWC-106'],
+    // More specific than the SWC-106 registry's own CWE-284 ("Improper Access
+    // Control", a broad parent): the finding is precisely "no authorization
+    // check at all guards this sensitive function", i.e. CWE-862.
+    compliance: { cwe: ['CWE-862'] },
   },
   evaluate,
 };

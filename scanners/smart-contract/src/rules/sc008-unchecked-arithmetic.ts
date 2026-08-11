@@ -96,6 +96,10 @@ export const sc008UncheckedArithmetic: RuleDefinition = {
     recommendation:
       'Upgrade to Solidity >=0.8.0, or use SafeMath consistently for state-variable arithmetic.',
     references: ['https://swcregistry.io/docs/SWC-101'],
+    // More specific than the SWC-101 registry's own CWE-682 ("Incorrect
+    // Calculation", a broad parent): CWE-190 is the standard, widely-used CWE
+    // for integer overflow/underflow specifically.
+    compliance: { cwe: ['CWE-190'] },
   },
   evaluate,
 };

@@ -78,6 +78,8 @@ export const sc003UncheckedCall: RuleDefinition = {
     recommendation:
       'Capture and check the boolean result before proceeding, or use .transfer(...) where applicable.',
     references: ['https://swcregistry.io/docs/SWC-104'],
+    // SWC-104's own "Relationships" entry cites this exact CWE.
+    compliance: { cwe: ['CWE-252'] },
   },
   evaluate,
 };

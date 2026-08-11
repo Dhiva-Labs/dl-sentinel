@@ -89,6 +89,8 @@ export const sc004Delegatecall: RuleDefinition = {
     recommendation:
       'Restrict delegatecall targets to an immutable/constant address, or add strict access control and validation before the call.',
     references: ['https://swcregistry.io/docs/SWC-112'],
+    // SWC-112's own "Relationships" entry cites this exact CWE.
+    compliance: { cwe: ['CWE-829'] },
   },
   evaluate,
 };

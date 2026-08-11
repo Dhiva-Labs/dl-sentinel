@@ -111,6 +111,7 @@ export const c005PathTraversal: RuleModule = {
       'allowed base directory), or use only the basename of the untrusted segment ' +
       'joined onto a fixed, trusted directory.',
     references: [],
+    compliance: { cwe: ['CWE-22'], owasp: ['A01:2021'] },
   },
   languages: ['js', 'py', 'rb', 'php', 'go'],
   check(ctx) {

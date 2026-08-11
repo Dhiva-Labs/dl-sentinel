@@ -84,6 +84,7 @@ export const c002Eval: RuleModule = {
       'table instead of building code strings, or a safe expression evaluator scoped ' +
       'to the exact operations required.',
     references: [],
+    compliance: { cwe: ['CWE-95'], owasp: ['A03:2021'] },
   },
   languages: ['js', 'py', 'php'],
   check(ctx) {
