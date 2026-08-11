@@ -9,6 +9,7 @@
     { "path": "../../packages/core" },
     { "path": "../../packages/engine" },
     { "path": "../../packages/preset" },
-    { "path": "../../packages/reporting" }
+    { "path": "../../packages/reporting" },
+    { "path": "../../scanners/infra" }
   ]
 }

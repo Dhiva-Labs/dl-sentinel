@@ -1,0 +1,6 @@
+# Graph fixture: id-collision safety, half A — a service named "app",
+# identically named in ../b/docker-compose.yml, must still resolve to two
+# distinct graph nodes since they are declared in different files.
+services:
+  app:
+    image: example/a:1.0.0

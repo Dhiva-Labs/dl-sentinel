@@ -1,0 +1,7 @@
+# Graph fixture: a service built from a local Dockerfile (build: .) that
+# also tags the built image explicitly, so the service should link to BOTH
+# its tagged image AND (best-effort) the Dockerfile's own base image.
+services:
+  app:
+    build: .
+    image: build-link-fixture:latest

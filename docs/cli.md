@@ -82,6 +82,54 @@ sentinel baseline ./project --output baseline.json   # explicit output path
 sentinel scan . --baseline baseline.json             # later: report only new findings
 ```
 
+### `sentinel graph [target]`
+
+Builds the **infrastructure graph** — a deterministic model of the deployment surface
+(docs/architecture.md ["## Infrastructure graph"](architecture.md#infrastructure-graph)) — from
+the Compose files, Kubernetes manifests, and Dockerfiles found under a directory (default: `.`),
+and prints it as JSON or a [Mermaid](https://mermaid.js.org/) flowchart. Unlike `scan`, this does
+not load `sentinel.yml` or run any rule: the graph is purely descriptive (nodes/edges, never a
+severity), built by `@dl-sentinel/scanner-infra`'s `buildInfraGraph()` from the same
+Dockerfile/Compose/Kubernetes parses the infra scanner's rules use.
+
+| Flag | Value | Meaning |
+| --- | --- | --- |
+| `--format <format>` | `json` \| `mermaid` | Output format. Defaults to `json`. |
+| `--output <path>` | file path | Write the graph to a file instead of stdout. |
+
+Nodes have kind `service \| workload \| container \| image \| volume \| network \| hostPath \|
+port`; edges have kind `uses-image \| mounts \| exposes \| connects \| depends-on \|
+host-network \| privileged`. A compose service that both tags and `build:`s an image is
+best-effort linked to the Dockerfile in its build context, so an unpinned/risky base image
+shows up even when the compose file itself only names the tag it produces. When nothing is
+found, a note is printed to stderr and an empty-but-valid graph (`{"nodes":[],"edges":[]}`, or
+`flowchart LR` alone) is still written to stdout (or `--output`) — this is not an error.
+
+```bash
+sentinel graph .                              # JSON graph of the current directory, to stdout
+sentinel graph ./project --format mermaid     # a flowchart, to stdout
+sentinel graph . --format mermaid --output infra.mmd
+```
+
+Example Mermaid output (privileged/host-mounted/host-networked nodes are styled `risky`; images,
+volumes, and ports get distinct shapes):
+
+```mermaid
+flowchart LR
+  n0["app"]
+  n1[("/var/run/docker.sock")]
+  n2(("node:latest"))
+  classDef risky fill:#7f1d1d,stroke:#ef4444,color:#ffffff
+  classDef image fill:#1e3a5f,stroke:#3b82f6,color:#ffffff
+  class n0,n1 risky
+  class n2 image
+  n0 -->|mounts| n1
+  n0 -->|uses-image| n2
+```
+
+Exit codes: `0` ok (including an empty graph) · `2` write error · `64` usage error (unknown
+flag/format, more than one path, or a target that doesn't exist / isn't a directory).
+
 ### `sentinel rules`
 
 Lists every rule from every registered scanner. See [Rules](rules.md#listing-rules-sentinel-rules).

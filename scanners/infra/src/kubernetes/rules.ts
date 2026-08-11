@@ -7,13 +7,13 @@ import { isUnpinnedImageRef } from '../util/image-ref.js';
 import { isLiteralSecretValue } from '../util/secret-heuristic.js';
 import { evidenceAt } from '../util/yaml-docs.js';
 
-type PathKey = string | number;
+export type PathKey = string | number;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-interface PodSpecRef {
+export interface PodSpecRef {
   spec: Record<string, unknown>;
   basePath: PathKey[];
 }
@@ -23,8 +23,13 @@ interface PodSpecRef {
  * following each supported kind to where its `containers` list actually
  * lives. Kinds without a pod template (Service, ConfigMap, CRDs, ...)
  * resolve to no pod specs and simply produce no findings.
+ *
+ * Exported (alongside {@link collectContainers}) so the infra graph builder
+ * (`../graph/kubernetes.ts`) can reuse the exact same kind-resolution logic
+ * instead of re-deriving it — a pure, side-effect-free structural helper,
+ * so exporting it does not change this scanner's behavior.
  */
-function resolvePodSpecs(doc: Record<string, unknown>): PodSpecRef[] {
+export function resolvePodSpecs(doc: Record<string, unknown>): PodSpecRef[] {
   const kind = typeof doc.kind === 'string' ? doc.kind : undefined;
   const spec = isPlainObject(doc.spec) ? doc.spec : undefined;
   if (!kind || !spec) return [];
@@ -54,12 +59,15 @@ function resolvePodSpecs(doc: Record<string, unknown>): PodSpecRef[] {
   }
 }
 
-interface ContainerRef {
+export interface ContainerRef {
   container: Record<string, unknown>;
   path: PathKey[];
 }
 
-function collectContainers(podSpec: Record<string, unknown>, basePath: PathKey[]): ContainerRef[] {
+export function collectContainers(
+  podSpec: Record<string, unknown>,
+  basePath: PathKey[],
+): ContainerRef[] {
   const refs: ContainerRef[] = [];
   for (const field of ['containers', 'initContainers'] as const) {
     const list = podSpec[field];

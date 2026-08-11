@@ -1,0 +1,4 @@
+# Graph fixture: id-collision safety, half B — see ../a/docker-compose.yml.
+services:
+  app:
+    image: example/b:1.0.0
