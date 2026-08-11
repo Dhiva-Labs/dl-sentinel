@@ -11,17 +11,19 @@
  * not a substring match — to avoid flagging unrelated functions like
  * `initiateTransfer`.
  *
- * Known gap: OpenZeppelin's `initializer`/`reinitializer` modifiers (the
- * standard one-time-call guard for this exact pattern) do not match the
- * shared protective-modifier substring list (only/auth/admin/owner/role/
- * guard), so a correctly-guarded upgradeable contract using only that
- * modifier will still be flagged here. See modifiers.ts for the rationale
- * for not silently special-casing it, and the handover Known Issues.
+ * Previously-documented gap, now closed by the contract model: OpenZeppelin's
+ * `initializer`/`reinitializer` modifiers are declared in an imported base,
+ * which `guards.ts` resolves to "modifier applied but unreadable" and
+ * therefore *assumes* protective. A correctly-guarded upgradeable contract is
+ * no longer reported. The cost of that is stated plainly rather than hidden:
+ * any applied-but-unreadable modifier now silences this rule, whether or not
+ * it really guards anything.
  */
 
 import type { Finding } from '@dl-sentinel/core';
 import { createFinding, redactEvidence } from '@dl-sentinel/core';
-import { hasMsgSenderGuard, hasProtectiveModifier } from '../modifiers.js';
+import { isFunctionGuarded } from '../guards.js';
+import { resolveContractIn } from '../resolve.js';
 import { lineOriginal } from '../util.js';
 import type { RuleContext, RuleDefinition } from './types.js';
 
@@ -31,12 +33,13 @@ function evaluate(ctx: RuleContext): Finding[] {
   const findings: Finding[] = [];
 
   for (const contract of ctx.file.contracts) {
+    const resolved = resolveContractIn(ctx.file, contract);
+
     for (const fn of contract.functions) {
       if (!fn.hasBody) continue;
       if (!INITIALIZER_NAMES.has(fn.name.toLowerCase())) continue;
       if (fn.visibility !== 'public' && fn.visibility !== 'external') continue;
-      if (hasProtectiveModifier(fn.modifiers)) continue;
-      if (hasMsgSenderGuard(fn.body)) continue;
+      if (isFunctionGuarded(resolved, fn)) continue;
 
       findings.push(
         createFinding({
@@ -70,7 +73,7 @@ export const sc006Initializer: RuleDefinition = {
     defaultConfidence: 'medium',
     category: 'smart-contract',
     description:
-      'A function named initialize/init/setup (proxy-pattern constructor substitute) is public/external with no access-control modifier and no msg.sender guard.',
+      'A function named initialize/init/setup (proxy-pattern constructor substitute) is public/external with no access-control guard: no applied modifier whose body checks the caller (including a one-time-call guard such as OpenZeppelin’s initializer, which is assumed protective when imported) and no msg.sender guard of its own.',
     recommendation:
       'Guard the initializer with an access-control modifier and/or a one-time-call guard.',
     references: [],

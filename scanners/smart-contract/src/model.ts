@@ -4,7 +4,12 @@
  * This is NOT the `Finding`/`RuleMeta` model from `@dl-sentinel/core` — it is
  * the scanner's own lightweight representation of a `.sol` file, produced by
  * `parser.ts` and consumed by `rules/*`. It intentionally captures only what
- * the rule catalog (SC001-SC012) needs; it is not a full Solidity AST.
+ * the rule catalog (SC001-SC017) needs; it is not a full Solidity AST.
+ *
+ * `resolve.ts` layers a *contract-level* view on top of this raw parse:
+ * same-file inheritance resolution, modifier bodies, and an intra-file call
+ * graph. Anything in this file is what a single pass over the text recovered;
+ * anything in `resolve.ts` is what cross-referencing those parses inferred.
  */
 
 export type Visibility = 'public' | 'external' | 'internal' | 'private';
@@ -28,6 +33,17 @@ export interface SourceLine {
   stripped: string;
 }
 
+/** One declared parameter: its name plus the declared type text preceding it. */
+export interface ParameterInfo {
+  name: string;
+  /**
+   * Declared type as written, with data-location keywords (`memory`,
+   * `storage`, `calldata`) and `indexed` removed — e.g. `address`,
+   * `uint256`, `IERC20`, `bytes`.
+   */
+  type: string;
+}
+
 export interface FunctionInfo {
   /** Function name; `constructor`/`receive`/`fallback` for those special functions. */
   name: string;
@@ -38,6 +54,12 @@ export interface FunctionInfo {
   modifiers: string[];
   /** Parameter names the header parser could recover (unnamed params are omitted). */
   parameters: string[];
+  /**
+   * Same parameters as `parameters`, in the same order, carrying their
+   * declared type text as well. Kept alongside (rather than replacing)
+   * `parameters` so the name-only consumers stay untouched.
+   */
+  declaredParameters: ParameterInfo[];
   /** Line of the `function`/`constructor`/`receive`/`fallback` keyword. */
   headerLine: number;
   /**
@@ -60,6 +82,30 @@ export interface StateVariableInfo {
   /** Line where the declaration statement starts. */
   line: number;
   isConstantOrImmutable: boolean;
+  /**
+   * Leading type token of the declaration as written (`address`, `uint256`,
+   * `IERC20`, `mapping`, ...). Empty when the declaration was too malformed
+   * to recover one.
+   */
+  declaredType: string;
+}
+
+/** A `modifier X(...) { ... }` declaration, including its body. */
+export interface ModifierInfo {
+  name: string;
+  /** Parameter names the header parser could recover. */
+  parameters: string[];
+  /** Line of the `modifier` keyword. */
+  headerLine: number;
+  /**
+   * False for a body-less `modifier X() virtual;` declaration in an abstract
+   * contract — the guard it enforces lives in whichever contract overrides it.
+   */
+  hasBody: boolean;
+  bodyStartLine?: number;
+  bodyEndLine?: number;
+  /** Every physical line the modifier's `{ ... }` spans, in order. */
+  body: SourceLine[];
 }
 
 export interface ContractInfo {
@@ -72,6 +118,15 @@ export interface ContractInfo {
   functions: FunctionInfo[];
   /** Names of modifiers declared with `modifier X(...) { ... }` in this contract. */
   modifierNames: string[];
+  /** Full declarations (with bodies) of this contract's own modifiers. */
+  modifiers: ModifierInfo[];
+  /**
+   * Base contract names from `contract A is B, C`, in source (left-to-right)
+   * order, with any constructor arguments stripped (`is Owned(msg.sender)`
+   * yields `Owned`). A base declared in another file is still listed here —
+   * `resolve.ts` reports it as unresolved rather than dropping it.
+   */
+  baseNames: string[];
 }
 
 export interface PragmaInfo {
