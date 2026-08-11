@@ -13,6 +13,7 @@ export function topLevelHelp(): string {
     'Commands:',
     '  scan [path]        Scan a directory (default: .) and report findings',
     '  baseline [path]    Scan and write a baseline of the current findings',
+    '  graph [path]       Build the infrastructure deployment graph',
     '  rules              List every rule from the built-in scanners',
     '  report <file>      Re-render a saved JSON report in another format',
     '  version            Print the tool name and version',
@@ -64,6 +65,27 @@ export function baselineHelp(): string {
     '  --quiet              Suppress the summary line on stderr',
     '  --no-color           Disable ANSI color',
     '  --help, -h           Show this help',
+    '',
+    'Exit codes: 0 ok · 2 write error · 64 usage error',
+  ].join('\n');
+}
+
+export function graphHelp(): string {
+  return [
+    'Usage: sentinel graph [path] [options]',
+    '',
+    'Build the infrastructure deployment graph (docs/architecture.md',
+    '"## Infrastructure graph") from the Compose/Kubernetes/Dockerfile files',
+    'found under a directory (default: .), and print it as JSON or Mermaid.',
+    '',
+    'Options:',
+    '  --format <format>    json | mermaid (default: json)',
+    '  --output <file>      Write the graph to a file instead of stdout',
+    '  --help, -h           Show this help',
+    '',
+    'When no infrastructure definitions are found, a note is printed to',
+    'stderr and an empty-but-valid graph is still written to stdout (or',
+    '--output); this is not an error.',
     '',
     'Exit codes: 0 ok · 2 write error · 64 usage error',
   ].join('\n');

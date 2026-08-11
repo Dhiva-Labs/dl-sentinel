@@ -22,6 +22,7 @@
     "@dl-sentinel/core": "*",
     "@dl-sentinel/engine": "*",
     "@dl-sentinel/preset": "*",
-    "@dl-sentinel/reporting": "*"
+    "@dl-sentinel/reporting": "*",
+    "@dl-sentinel/scanner-infra": "*"
   }
 }
