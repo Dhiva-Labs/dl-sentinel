@@ -5,7 +5,13 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { TOOL_VERSION } from '@dl-sentinel/core';
 import { createServer } from '../src/index.js';
-import { bearer, fixturesRoot, silentLogger, startTestServer } from './support.js';
+import {
+  bearer,
+  fixturesRoot,
+  shutdownTestServer,
+  silentLogger,
+  startTestServer,
+} from './support.js';
 import type { TestServer } from './support.js';
 
 describe('health and authentication', () => {
@@ -83,6 +89,9 @@ describe('token generation when unconfigured', () => {
 
   afterEach(() => {
     if (savedToken !== undefined) process.env.SENTINEL_API_TOKEN = savedToken;
+    // The data dir is removed by shutdownTestServer, which first awaits the
+    // audit-log writes this request path fires off; removing it here as well
+    // would race those writes (ENOTEMPTY).
     rmSync(dataDir, { recursive: true, force: true });
   });
 
@@ -108,10 +117,11 @@ describe('token generation when unconfigured', () => {
       const authed = await fetch(`${base}/api/rules`, { headers: bearer(server.sentinel.token) });
       expect(authed.status).toBe(200);
     } finally {
-      await new Promise<void>((resolve) => {
-        server.close(() => resolve());
-        (server as unknown as { closeAllConnections?: () => void }).closeAllConnections?.();
-      });
+      // Stops the queue/scheduler/notifier and awaits pending store writes
+      // before the data dir goes away — closing the socket alone leaves the
+      // audit-log append in flight, which intermittently fails the afterEach
+      // rmSync with ENOTEMPTY under CI timing.
+      await shutdownTestServer(server, dataDir, false);
     }
   });
 });
