@@ -5,6 +5,8 @@ import path from 'node:path';
 import type { Finding } from '@dl-sentinel/core';
 import type {
   AuditEntry,
+  NotificationChannel,
+  NotificationEvent,
   ScanRecord,
   ScanStatus,
   ScanSummary,
@@ -12,6 +14,7 @@ import type {
   ServerLogger,
   UserRecord,
 } from './types.js';
+import { isChannelType, isNotificationEvent } from './notifications.js';
 import { isUserRole } from './permissions.js';
 
 function errorMessage(error: unknown): string {
@@ -54,18 +57,23 @@ function toSummary(scan: ScanRecord): ScanSummary {
  * bodies. Records mutate through {@link create} and {@link update}, and every
  * mutation is written through to disk.
  *
- * Schedules (`<dataDir>/schedules/`) and users (`<dataDir>/users/`) persist the
- * same way. A user record holds only the SHA-256 hash of its bearer token — the
- * token itself is never written to disk, to the audit log, or to a response
- * after the one create/rotate that returned it.
+ * Schedules (`<dataDir>/schedules/`), users (`<dataDir>/users/`) and
+ * notification channels (`<dataDir>/notifications/`) persist the same way. A
+ * user record holds only the SHA-256 hash of its bearer token — the token itself
+ * is never written to disk, to the audit log, or to a response after the one
+ * create/rotate that returned it. A channel record does hold its signing secret
+ * (it must, to sign), but that field never leaves this process except as an
+ * HMAC.
  */
 export class ReportStore {
   private readonly scans = new Map<string, ScanRecord>();
   private readonly schedules = new Map<string, ScheduleRecord>();
   private readonly users = new Map<string, UserRecord>();
+  private readonly channels = new Map<string, NotificationChannel>();
   private readonly scansDir: string;
   private readonly schedulesDir: string;
   private readonly usersDir: string;
+  private readonly channelsDir: string;
   private readonly auditPath: string;
   private readonly logger: ServerLogger;
   /** In-flight async writes (audit-log appends), so shutdown can await them. */
@@ -75,11 +83,13 @@ export class ReportStore {
     this.scansDir = path.join(dataDir, 'scans');
     this.schedulesDir = path.join(dataDir, 'schedules');
     this.usersDir = path.join(dataDir, 'users');
+    this.channelsDir = path.join(dataDir, 'notifications');
     this.auditPath = path.join(dataDir, 'audit.log');
     this.logger = logger;
     this.loadExisting();
     this.loadSchedules();
     this.loadUsers();
+    this.loadChannels();
   }
 
   private loadExisting(): void {
@@ -121,7 +131,7 @@ export class ReportStore {
   }
 
   /** Create and persist a new `queued` record for a validated target. */
-  create(input: { path: string; scanners?: string[] }): ScanRecord {
+  create(input: { path: string; scanners?: string[]; scheduleId?: string }): ScanRecord {
     const record: ScanRecord = {
       id: randomUUID(),
       status: 'queued',
@@ -129,6 +139,7 @@ export class ReportStore {
       createdAt: new Date().toISOString(),
     };
     if (input.scanners !== undefined) record.scanners = input.scanners;
+    if (input.scheduleId !== undefined) record.scheduleId = input.scheduleId;
     this.scans.set(record.id, record);
     this.persist(record);
     return record;
@@ -387,6 +398,131 @@ export class ReportStore {
       this.logger.warn(`Failed to remove user file ${id}: ${errorMessage(error)}`);
     }
     return true;
+  }
+
+  // -------------------------------------------------------------------------
+  // Notification channels — `<dataDir>/notifications/<id>.json`. Unlike a user
+  // record, a channel keeps its `secret` in plaintext: it signs webhook bodies,
+  // which a digest cannot do. It is never served (see `toPublicChannel`) and
+  // never logged.
+  // -------------------------------------------------------------------------
+
+  private loadChannels(): void {
+    mkdirSync(this.channelsDir, { recursive: true });
+    let names: string[];
+    try {
+      names = readdirSync(this.channelsDir);
+    } catch (error) {
+      this.logger.warn(`Could not read notifications directory: ${errorMessage(error)}`);
+      return;
+    }
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue;
+      try {
+        const parsed = JSON.parse(readFileSync(path.join(this.channelsDir, name), 'utf8')) as
+          NotificationChannel | undefined;
+        if (
+          parsed !== null &&
+          typeof parsed === 'object' &&
+          typeof parsed.id === 'string' &&
+          typeof parsed.url === 'string' &&
+          typeof parsed.enabled === 'boolean' &&
+          typeof parsed.createdAt === 'string' &&
+          isChannelType(parsed.type) &&
+          Array.isArray(parsed.events) &&
+          parsed.events.length > 0 &&
+          parsed.events.every((event) => isNotificationEvent(event))
+        ) {
+          this.channels.set(parsed.id, parsed);
+        }
+      } catch (error) {
+        this.logger.warn(`Skipping unreadable notification file ${name}: ${errorMessage(error)}`);
+      }
+    }
+  }
+
+  private persistChannel(record: NotificationChannel): void {
+    try {
+      writeFileSync(
+        path.join(this.channelsDir, `${record.id}.json`),
+        JSON.stringify(record, null, 2),
+      );
+    } catch (error) {
+      // The id is safe to log; the record is not (it may carry a secret).
+      this.logger.error(
+        `Failed to persist notification channel ${record.id}: ${errorMessage(error)}`,
+      );
+    }
+  }
+
+  /** Create and persist a channel (enabled by default). */
+  createChannel(input: {
+    type: NotificationChannel['type'];
+    url: string;
+    events: NotificationEvent[];
+    enabled?: boolean;
+    secret?: string;
+  }): NotificationChannel {
+    const record: NotificationChannel = {
+      id: randomUUID(),
+      type: input.type,
+      url: input.url,
+      events: input.events,
+      enabled: input.enabled ?? true,
+      createdAt: new Date().toISOString(),
+    };
+    if (input.secret !== undefined) record.secret = input.secret;
+    this.channels.set(record.id, record);
+    this.persistChannel(record);
+    return record;
+  }
+
+  /** Replace a channel in memory and write it through to disk. */
+  updateChannel(record: NotificationChannel): void {
+    this.channels.set(record.id, record);
+    this.persistChannel(record);
+  }
+
+  getChannel(id: string): NotificationChannel | undefined {
+    return this.channels.get(id);
+  }
+
+  /** All channels, newest first (by creation time). */
+  listChannels(): NotificationChannel[] {
+    return [...this.channels.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  /** Remove a channel and its file. Returns whether it existed. */
+  deleteChannel(id: string): boolean {
+    if (!this.channels.delete(id)) return false;
+    try {
+      rmSync(path.join(this.channelsDir, `${id}.json`), { force: true });
+    } catch (error) {
+      this.logger.warn(`Failed to remove notification file ${id}: ${errorMessage(error)}`);
+    }
+    return true;
+  }
+
+  /**
+   * Record a delivery failure against a channel. Looked up by id rather than
+   * taking a record, because a delivery outlives the request that triggered it:
+   * the channel may have been edited or deleted in between, and a stale copy
+   * must never be written back (or resurrect a deleted channel).
+   */
+  setChannelError(id: string, message: string): void {
+    const current = this.channels.get(id);
+    if (current === undefined) return;
+    if (current.lastError === message) return;
+    this.updateChannel({ ...current, lastError: message });
+  }
+
+  /** Clear a channel's `lastError` after a successful delivery. */
+  clearChannelError(id: string): void {
+    const current = this.channels.get(id);
+    if (current === undefined || current.lastError === undefined) return;
+    const cleared: NotificationChannel = { ...current };
+    delete cleared.lastError;
+    this.updateChannel(cleared);
   }
 
   /**

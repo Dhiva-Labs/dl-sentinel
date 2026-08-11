@@ -46,6 +46,13 @@ export class ScanQueue implements ScanQueueControls {
   private readonly waiters = new Map<string, Waiter[]>();
   private idleWaiters: Array<() => void> = [];
   private drainWaiters: Array<() => void> = [];
+  /**
+   * Called once per job, with the settled record, after its terminal state has
+   * been persisted. This is the notification hook: it is invoked synchronously
+   * and its own work must not be awaited here, so a slow or broken receiver can
+   * never delay a job's completion (see {@link Notifier.emit}).
+   */
+  private onSettled: ((record: ScanRecord) => void) | undefined;
 
   constructor(
     private readonly store: ReportStore,
@@ -53,6 +60,29 @@ export class ScanQueue implements ScanQueueControls {
     private readonly concurrency: number,
     private readonly logger: ServerLogger,
   ) {}
+
+  /** Register the post-terminal-state hook (see {@link onSettled}). */
+  setOnSettled(hook: (record: ScanRecord) => void): void {
+    this.onSettled = hook;
+  }
+
+  /**
+   * Run the settled hook. Wrapped so a fault in a notification path is logged
+   * and dropped rather than surfacing as a failed job or an unhandled rejection
+   * — the scan has already completed and persisted by this point.
+   */
+  private notifySettled(record: ScanRecord): void {
+    if (this.onSettled === undefined) return;
+    try {
+      this.onSettled(record);
+    } catch (error) {
+      this.logger.warn(
+        `Post-completion hook for scan ${record.id} failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
 
   /** Add a queued job id to the pool and start work if a slot is free. */
   enqueue(id: string): void {
@@ -96,6 +126,8 @@ export class ScanQueue implements ScanQueueControls {
         report,
       };
       this.store.update(completed);
+      // Terminal state is on disk before anything outbound is attempted.
+      this.notifySettled(completed);
       this.resolveWaiters(id, completed);
     } catch (error) {
       // The engine isolates individual scanner failures; reaching here means the
@@ -112,6 +144,7 @@ export class ScanQueue implements ScanQueueControls {
         error: sanitizeScanError(error),
       };
       this.store.update(failed);
+      this.notifySettled(failed);
       this.resolveWaiters(id, failed);
     }
   }

@@ -22,8 +22,23 @@
  * additionally create users at `/api/users`, each with their own token and a role
  * (`viewer` / `operator` / `admin`) that gates what they may call; an
  * under-privileged request is a `403`. See docs/api.md.
+ *
+ * Notification note: the server makes no outbound requests of its own unless an
+ * admin configures a channel at `/api/notifications`. Deliveries then go out
+ * after a job has reached and persisted its terminal state, through an
+ * injectable `fetch` with a 5 s deadline; a failed delivery is recorded on the
+ * channel and never affects the scan.
  */
 export { createServer, startServer } from './server.js';
+export {
+  NOTIFICATION_EVENTS,
+  CHANNEL_TYPES,
+  DELIVERY_TIMEOUT_MS,
+  SIGNATURE_HEADER,
+  isValidChannelUrl,
+  signBody,
+  slackText,
+} from './notifications.js';
 export type {
   ServerOptions,
   RateLimitOptions,
@@ -31,6 +46,7 @@ export type {
   SentinelApiServer,
   ScanQueueControls,
   SchedulerControls,
+  NotifierControls,
   ScanRecord,
   ScanStatus,
   ScanSummary,
@@ -43,4 +59,11 @@ export type {
   PublicUser,
   AuthContext,
   AuditEntry,
+  FetchLike,
+  ChannelType,
+  NotificationEvent,
+  NotificationChannel,
+  NotificationPayload,
+  PublicChannel,
+  DeliveryResult,
 } from './types.js';

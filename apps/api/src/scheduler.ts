@@ -1,3 +1,4 @@
+import type { Notifier } from './notifier.js';
 import type { ScanQueue } from './queue.js';
 import type { ReportStore } from './store.js';
 import type { ScheduleRecord, SchedulerControls, ServerLogger } from './types.js';
@@ -15,9 +16,16 @@ import type { ScheduleRecord, SchedulerControls, ServerLogger } from './types.js
  * (started by {@link start}) is `unref`'d so it never keeps the process alive,
  * and every tick is wrapped so a scheduling error is logged and swallowed,
  * never crashing the server.
+ *
+ * A schedule can fail in two places, and both raise `schedule.failed`: the
+ * enqueue itself can throw (handled here, since no scan record exists to hang
+ * the event off), or the scan it started can end `failed` — for which the
+ * schedule's id travels on the scan record and the notifier raises the event
+ * when that job settles.
  */
 export class Scheduler implements SchedulerControls {
   private timer: ReturnType<typeof setInterval> | undefined;
+  private notifier: Notifier | undefined;
 
   constructor(
     private readonly store: ReportStore,
@@ -26,6 +34,11 @@ export class Scheduler implements SchedulerControls {
     private readonly checkIntervalMs: number,
     private readonly now: () => number = Date.now,
   ) {}
+
+  /** Wire the notifier used to report a schedule that could not be started. */
+  setNotifier(notifier: Notifier): void {
+    this.notifier = notifier;
+  }
 
   /**
    * Recompute `nextRunAt` for persisted schedules after a (re)start. A schedule
@@ -63,10 +76,12 @@ export class Scheduler implements SchedulerControls {
   /** Enqueue one scan for a due schedule and advance it. Never throws. */
   private fire(schedule: ScheduleRecord, nowMs: number): boolean {
     try {
+      // scheduleId travels with the job so a failure of the scan itself can be
+      // attributed back to this schedule when the job settles.
       const scan = this.store.create(
         schedule.scanners === undefined
-          ? { path: schedule.path }
-          : { path: schedule.path, scanners: schedule.scanners },
+          ? { path: schedule.path, scheduleId: schedule.id }
+          : { path: schedule.path, scanners: schedule.scanners, scheduleId: schedule.id },
       );
       this.queue.enqueue(scan.id);
       this.store.updateSchedule({
@@ -77,10 +92,15 @@ export class Scheduler implements SchedulerControls {
       });
       return true;
     } catch (error) {
-      this.logger.error(
-        `Scheduler failed to enqueue schedule ${schedule.id}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+      const reason = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Scheduler failed to enqueue schedule ${schedule.id}: ${reason}`);
+      // Off the critical path, like every other delivery: emit() returns
+      // immediately and the tick moves on to the next schedule.
+      this.notifier?.emitScheduleFailure(
+        schedule.id,
+        schedule.path,
+        new Date(nowMs).toISOString(),
+        reason,
       );
       return false;
     }

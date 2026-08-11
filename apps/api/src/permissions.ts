@@ -30,7 +30,7 @@ export function roleAtLeast(role: UserRole, required: UserRole): boolean {
  * | -------- | ------------------------------------------------------------ |
  * | viewer   | every `GET` (scans, findings, reports, rules, history, trends, schedules, me) |
  * | operator | viewer + `POST /api/scans`                                   |
- * | admin    | everything, including schedule mutations and `/api/users*`   |
+ * | admin    | everything, including schedule mutations, `/api/users*` and `/api/notifications*` |
  *
  * `segments` are the path segments after `api` (so `/api/users/x/rotate` is
  * `['users', 'x', 'rotate']`). Anything not explicitly opened up requires
@@ -46,6 +46,12 @@ export function requiredRoleFor(method: string, segments: readonly string[]): Us
   // User administration is admin-only for every method, reads included: the
   // list of who can reach the API is itself sensitive.
   if (first === 'users') return 'admin';
+  // Notification configuration, likewise for every method. The fail-closed
+  // default below already covers the mutating verbs, but a bare `GET` would
+  // otherwise fall into the viewer branch — and the channel list names the
+  // endpoints this deployment reports to. Stated explicitly so the rule is
+  // visible here rather than implied by the ordering of the lines after it.
+  if (first === 'notifications') return 'admin';
   if (method === 'GET' || method === 'HEAD') return 'viewer';
   if (method === 'POST' && first === 'scans' && segments.length === 1) return 'operator';
   return 'admin';
