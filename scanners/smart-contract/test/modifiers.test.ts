@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  hasGuardHelperCall,
   hasMsgSenderGuard,
   hasProtectiveModifier,
   hasReentrancyGuardModifier,
+  hasSenderConditionCheck,
+  hasSenderIdentityComparison,
   isProtectiveModifierName,
 } from '../src/modifiers.js';
 
@@ -64,6 +67,61 @@ describe('hasMsgSenderGuard', () => {
 
   it('false for an empty body', () => {
     expect(hasMsgSenderGuard([])).toBe(false);
+  });
+});
+
+describe('hasSenderConditionCheck (modifier-body tier)', () => {
+  it('accepts a caller reference anywhere inside a revert-shaped condition', () => {
+    expect(hasSenderConditionCheck([{ stripped: 'require(wards[msg.sender] == 1, "no");' }])).toBe(
+      true,
+    );
+    expect(
+      hasSenderConditionCheck([{ stripped: 'require(hasRole(ADMIN, _msgSender()), "no");' }]),
+    ).toBe(true);
+  });
+
+  it('rejects a condition that never mentions the caller', () => {
+    expect(hasSenderConditionCheck([{ stripped: 'require(!locked, "reentrant call");' }])).toBe(
+      false,
+    );
+  });
+
+  it('rejects a bare caller reference outside any condition', () => {
+    expect(hasSenderConditionCheck([{ stripped: 'balances[msg.sender] += msg.value;' }])).toBe(
+      false,
+    );
+  });
+});
+
+describe('hasSenderIdentityComparison (helper-body tier)', () => {
+  it('accepts a comparison outside a condition, e.g. a returned expression', () => {
+    expect(hasSenderIdentityComparison([{ stripped: 'return msg.sender == owner;' }])).toBe(true);
+    expect(hasSenderIdentityComparison([{ stripped: 'return owner != _msgSender();' }])).toBe(true);
+  });
+
+  it('rejects a caller reference that is not a comparison', () => {
+    expect(hasSenderIdentityComparison([{ stripped: 'balances[msg.sender] += msg.value;' }])).toBe(
+      false,
+    );
+  });
+});
+
+describe('hasGuardHelperCall', () => {
+  it('recognizes the OpenZeppelin authorization helpers', () => {
+    expect(hasGuardHelperCall([{ stripped: '_checkOwner();' }])).toBe(true);
+    expect(hasGuardHelperCall([{ stripped: '_checkRole(role);' }])).toBe(true);
+  });
+
+  it('recognizes the same shape under other naming', () => {
+    expect(hasGuardHelperCall([{ stripped: '_requireCallerIsAdmin();' }])).toBe(true);
+    expect(hasGuardHelperCall([{ stripped: 'validateAuthorized(user);' }])).toBe(true);
+  });
+
+  it('rejects unrelated helper calls', () => {
+    expect(hasGuardHelperCall([{ stripped: '_beforeTokenTransfer(from, to, amount);' }])).toBe(
+      false,
+    );
+    expect(hasGuardHelperCall([{ stripped: '_checkBalance(account);' }])).toBe(false);
   });
 });
 

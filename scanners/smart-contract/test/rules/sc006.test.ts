@@ -22,4 +22,13 @@ describe('SC006 unprotected initializer', () => {
     const findings = sc006Initializer.evaluate({ relPath, file });
     expect(findings).toHaveLength(0);
   });
+
+  it('does not fire on the OpenZeppelin `initializer` modifier imported from another file', () => {
+    // The gap the original name-only heuristic could not close: the modifier
+    // is declared outside this file, so guards.ts assumes it protects rather
+    // than reporting a correctly-guarded upgradeable contract.
+    const relPath = 'sc006-negative-imported-initializer.sol';
+    const file = parseFixture(relPath);
+    expect(sc006Initializer.evaluate({ relPath, file })).toHaveLength(0);
+  });
 });

@@ -60,10 +60,36 @@ describe('smart-contract rule catalog: compliance mapping', () => {
     }
   });
 
-  it('SC009 (floating/outdated pragma) and SC012 (setter without event) deliberately carry no mapping', () => {
-    for (const id of ['SC009', 'SC012']) {
+  it('the hygiene rules deliberately carry no mapping', () => {
+    // SC009 floating/outdated pragma, SC012 setter without an event, SC016
+    // missing zero-address check, SC017 delegatecall in a loop: each is a
+    // hardening/hygiene check with no single canonical CWE, so per
+    // docs/rules.md the field is omitted rather than guessed.
+    for (const id of ['SC009', 'SC012', 'SC016', 'SC017']) {
       const rule = smartContractScanner.rules.find((r) => r.id === id);
+      expect(rule).toBeDefined();
       expect(rule?.compliance).toBeUndefined();
+    }
+  });
+
+  it('every mapped rule carries exactly the cwe ids its documentation claims', () => {
+    const expected: Record<string, string[]> = {
+      SC001: ['CWE-841'],
+      SC002: ['CWE-346'],
+      SC003: ['CWE-252'],
+      SC004: ['CWE-829'],
+      SC005: ['CWE-862'],
+      SC006: ['CWE-862'],
+      SC007: ['CWE-862'],
+      SC008: ['CWE-190'],
+      SC010: ['CWE-330'],
+      SC011: ['CWE-477'],
+      SC013: ['CWE-841'],
+      SC014: ['CWE-862'],
+      SC015: ['CWE-252'],
+    };
+    for (const rule of smartContractScanner.rules) {
+      expect(rule.compliance?.cwe).toEqual(expected[rule.id]);
     }
   });
 });

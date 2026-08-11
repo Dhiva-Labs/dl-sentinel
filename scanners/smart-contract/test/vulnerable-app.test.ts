@@ -58,6 +58,22 @@ describe('vulnerable-app: Vulnerable.sol', () => {
     expect(ruleIds.has('SC012')).toBe(false);
   });
 
+  it('the contract-model rules stay quiet: nothing here matches their shapes', async () => {
+    const context = contextFor([vulnerableFileRef()], { rootDir: REPO_ROOT });
+    const findings = await smartContractScanner.scan(context);
+    const ruleIds = new Set(findings.map((f) => f.ruleId));
+
+    // withdraw() is a single-function reentrancy that SC001 already reports,
+    // and no other function crosses a call hop.
+    expect(ruleIds.has('SC013')).toBe(false);
+    // No proxy upgrade path, no ERC20 handle (the .transfer here sends ETH),
+    // no privileged address setter, and the delegatecall is not in a loop.
+    expect(ruleIds.has('SC014')).toBe(false);
+    expect(ruleIds.has('SC015')).toBe(false);
+    expect(ruleIds.has('SC016')).toBe(false);
+    expect(ruleIds.has('SC017')).toBe(false);
+  });
+
   it('is deterministic across repeated scans', async () => {
     const context1 = contextFor([vulnerableFileRef()], { rootDir: REPO_ROOT });
     const context2 = contextFor([vulnerableFileRef()], { rootDir: REPO_ROOT });
