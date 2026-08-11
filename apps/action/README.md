@@ -43,11 +43,26 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           path: .sentinel-base
 
-      - uses: Dhiva-Labs/dl-sentinel/apps/action@v0.1.0
+      # Built from source: this is a workspace monorepo whose action entry
+      # imports its sibling packages, so there is no bundled, self-contained
+      # dist/ to reference as `uses:` yet. Pin `ref:` to a reviewed tag/commit.
+      - uses: actions/checkout@v4
         with:
-          path: .
-          base_path: .sentinel-base
-          fail_on: critical,high
+          repository: Dhiva-Labs/dl-sentinel
+          ref: main
+          path: .sentinel-tool
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - working-directory: .sentinel-tool
+        run: npm ci && npm run build
+
+      - run: node .sentinel-tool/apps/action/dist/main.js
+        env:
+          INPUT_PATH: .
+          INPUT_BASE_PATH: .sentinel-base
+          INPUT_FAIL_ON: critical,high
+          GITHUB_TOKEN: ${{ github.token }}
 
       - if: always()
         continue-on-error: true
@@ -59,6 +74,11 @@ jobs:
 A ready-to-copy version lives at [`examples/pull-request.yml`](examples/pull-request.yml).
 
 ## Inputs
+
+Inputs are declared in [`action.yml`](action.yml), so they work as `with:` keys whenever this
+is consumed as a `uses:` action. When running it directly as a Node program (the usage above),
+pass each one as the matching `INPUT_` environment variable — `path` → `INPUT_PATH`,
+`fail_on` → `INPUT_FAIL_ON`, and so on.
 
 | Input        | Default                  | Description                                                                                              |
 | ------------ | ------------------------ | -------------------------------------------------------------------------------------------------------- |

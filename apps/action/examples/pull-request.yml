@@ -43,16 +43,33 @@ jobs:
         with:
           node-version: 20
 
+      # DL Sentinel is built from source here. It is a workspace monorepo whose
+      # action entry imports its sibling packages, so it is run as a Node
+      # program rather than a `uses:` action reference — there is no bundled,
+      # self-contained dist/ published today. Pin `ref:` to a tag or commit you
+      # have reviewed; never run an unpinned scanner against your own code.
+      - name: Check out DL Sentinel
+        uses: actions/checkout@v4
+        with:
+          repository: Dhiva-Labs/dl-sentinel
+          ref: main
+          path: .sentinel-tool
+
+      - name: Build DL Sentinel
+        working-directory: .sentinel-tool
+        run: npm ci && npm run build
+
       - name: Run DL Sentinel
         id: sentinel
-        # Pin to a released tag of the published action. The action ships its
-        # built dist/, so no build step is needed in your workflow.
-        uses: Dhiva-Labs/dl-sentinel/apps/action@v0.1.0
-        with:
-          path: .
-          base_path: .sentinel-base
-          fail_on: critical,high
-          # token defaults to ${{ github.token }} — no need to set it.
+        run: node .sentinel-tool/apps/action/dist/main.js
+        env:
+          INPUT_PATH: .
+          INPUT_BASE_PATH: .sentinel-base
+          INPUT_FAIL_ON: critical,high
+          GITHUB_TOKEN: ${{ github.token }}
+        # The tool checkout sits inside the workspace, so add it to `exclude:`
+        # in your sentinel.yml to keep it out of your own scan:
+        #   exclude: ['**/node_modules/**', '.sentinel-tool/**']
 
       # Optional: upload the SARIF so new findings show up in the Security tab
       # and inline on the PR diff. Code scanning upload requires a public repo
