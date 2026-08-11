@@ -182,6 +182,12 @@ export interface Report {
   suppressed?: number;
   /** Baseline comparison summary, present only when a baseline was applied. */
   baseline?: { newFindings: number; baselined: number };
+  /**
+   * The policy the scan was evaluated under (resolved from sentinel.yml or
+   * defaults). Lets consumers (CLI exit codes, the API's policy.violated
+   * notification) apply the target's own policy instead of assuming defaults.
+   */
+  policy?: PolicyConfig;
 }
 
 export type ReportFormat = 'terminal' | 'json' | 'markdown' | 'sarif';

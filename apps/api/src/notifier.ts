@@ -93,14 +93,10 @@ export class Notifier implements NotifierControls {
    * - `failed` → `scan.failed`, plus `schedule.failed` when the job was started
    *   by a schedule (the schedule's id travels on the record).
    *
-   * **Policy source.** The engine loads `sentinel.yml` internally and does not
-   * surface the effective config on the `Report`, so the server has no access to
-   * the per-target policy a run actually used. Rather than guess, it evaluates
-   * against `defaultConfig().policy` (`failOn: [critical, high]`) — the same
-   * default a target without a `sentinel.yml` would have got. This is documented
-   * in docs/api.md; a target that customises `policy.failOn` will see
-   * `policy.violated` follow the default, not its override, until the engine
-   * reports the config it resolved.
+   * **Policy source.** The engine surfaces the policy it resolved for the run
+   * on `report.policy` (the target's own `sentinel.yml` policy, or the
+   * defaults). Older persisted reports predate that field, so it falls back to
+   * `defaultConfig().policy` for them.
    */
   emitForSettledScan(record: ScanRecord): void {
     if (this.stopped) return;
@@ -115,7 +111,8 @@ export class Notifier implements NotifierControls {
         finishedAt: record.finishedAt ?? record.createdAt,
       });
       this.emit('scan.completed', payload);
-      if (!evaluatePolicy(record.report.stats, defaultConfig().policy).pass) {
+      const policy = record.report.policy ?? defaultConfig().policy;
+      if (!evaluatePolicy(record.report.stats, policy).pass) {
         this.emit('policy.violated', { ...payload, event: 'policy.violated' });
       }
       return;

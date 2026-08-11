@@ -164,6 +164,9 @@ async function runScan(plugins: readonly ScannerPlugin[], options: ScanOptions):
       // Only surface `suppressed` when suppression was actually configured, so
       // reports and consumers that predate this feature are unaffected.
       ...(suppressRules.length > 0 ? { suppressed: suppressed.length } : {}),
+      // Surface the resolved policy so consumers (CLI exit codes, the API's
+      // policy.violated notification) evaluate the target's own policy.
+      policy: config.policy,
     };
 
     emitter.emit({
