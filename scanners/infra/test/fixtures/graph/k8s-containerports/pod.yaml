@@ -1,0 +1,15 @@
+# Graph fixture: containerPort entries, to verify container -> port
+# "exposes" edges (compose ports are already covered by the compose
+# fixtures; this isolates the Kubernetes containerPort path).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: containerports-example
+spec:
+  containers:
+    - name: app
+      image: example/app:1.0.0
+      ports:
+        - containerPort: 8080
+        - containerPort: 9090
+          protocol: UDP

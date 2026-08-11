@@ -1,0 +1,21 @@
+# Graph fixture combining every compose-sourced node/edge kind in one file
+# (image, port, hostPath mount, named volume mount, depends_on, privileged,
+# host network), for an exact nodes+edges assertion — unlike the narrower
+# per-feature fixtures elsewhere in this directory, which are reused here
+# for their own focused tests.
+services:
+  db:
+    image: postgres:16
+  app:
+    image: example/app:1.0.0
+    privileged: true
+    network_mode: host
+    depends_on:
+      - db
+    ports:
+      - '8080:8080'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - appdata:/data
+volumes:
+  appdata: {}
