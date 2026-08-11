@@ -23,6 +23,7 @@ Scans a directory with the registered scanners and prints a report.
 | `--fail-on <severities>` | comma-separated severities | Override `policy.failOn` for this run. |
 | `--baseline <path>` | file path | Compare against a baseline and report only findings not already in it. |
 | `--write-baseline <path>` | file path | Write a baseline of this scan's findings after reporting. |
+| `--plugin <spec>` | file path or package name | Load an external scanner plugin. Repeatable — see [Loading external scanners](#loading-external-scanners---plugin). |
 | `--quiet` | flag | Suppress the stderr progress output (and the `--write-baseline` summary line). |
 | `--no-color` | flag | Disable ANSI color (also honored via `NO_COLOR` and auto-off when not a TTY). |
 
@@ -65,6 +66,7 @@ fix every pre-existing issue first.
 | `--config <path>` | file path | Use an explicit `sentinel.yml` instead of discovering one in the target. |
 | `--scanners <ids>` | comma-separated scanner ids | Run only this subset of registered scanners. |
 | `--output <path>` | file path | Baseline file to write. Defaults to `.sentinel-baseline.json` in the target directory. |
+| `--plugin <spec>` | file path or package name | Load an external scanner plugin. Repeatable. |
 | `--quiet` | flag | Suppress the "wrote N findings" summary line on stderr. |
 | `--no-color` | flag | Disable ANSI color. |
 
@@ -83,10 +85,60 @@ sentinel scan . --baseline baseline.json             # later: report only new fi
 ### `sentinel rules`
 
 Lists every rule from every registered scanner. See [Rules](rules.md#listing-rules-sentinel-rules).
+With `--plugin <spec>` (repeatable) the plugin's rules are listed after the built-ins.
 
 ```bash
 sentinel rules
+sentinel rules --plugin dl-sentinel-plugin-acme
 ```
+
+### `sentinel plugins`
+
+Loads the external scanner plugins given with `--plugin` and lists what each would contribute —
+id, name, version, rule count and the file or package actually resolved — **without scanning
+anything**. This is the command for reviewing a plugin before you use it.
+
+| Flag | Value | Meaning |
+| --- | --- | --- |
+| `--plugin <spec>` | file path or package name | Plugin to load. Repeatable; at least one is required. |
+| `--format <format>` | `terminal` \| `json` | Output format. Defaults to `terminal`. |
+| `--no-color` | flag | Disable ANSI color. |
+
+`--format json` emits `[{ id, name, version, categories, rules, spec, source }]`, where `source`
+is the resolved file path (or the package specifier). Running it with no `--plugin` prints a note
+about where plugins come from and exits `64`.
+
+```bash
+sentinel plugins --plugin ./plugins/acme/dist/index.js
+sentinel plugins --plugin dl-sentinel-plugin-acme --format json
+```
+
+Exit codes: `0` ok, `64` usage error (no `--plugin`, unresolvable spec, invalid plugin).
+
+### Loading external scanners (`--plugin`)
+
+`scan`, `baseline`, `rules` and `plugins` accept a repeatable `--plugin <spec>`. A spec starting
+with `.` or `/`, or ending in `.js`/`.mjs`/`.cjs`, is a file path resolved against the current
+directory; anything else is an installed package name. Plugins register **after** the built-ins,
+in flag order, and from that point are treated exactly like built-in scanners: their rules appear
+in `sentinel rules`, their ids are valid in `--scanners` and in `sentinel.yml`'s `scanners:`
+section, and their findings are reported, baselined and counted toward `policy.failOn` normally.
+
+```bash
+sentinel scan . --plugin ./plugins/acme/dist/index.js
+sentinel scan . --plugin dl-sentinel-plugin-acme --plugin @acme/dl-sentinel-plugin-infra
+sentinel scan . --plugin dl-sentinel-plugin-acme --scanners acme
+```
+
+Any load problem — unresolvable spec, a module that throws while importing, a malformed plugin, a
+duplicate id, or an id already taken by a built-in — is a usage error (exit `64`) reported before
+any scanning starts.
+
+**`--plugin` is the only way the CLI loads a plugin.** A `plugins:` key in `sentinel.yml` is
+ignored with a warning, including with an explicit `--config`, because config files travel inside
+scanned repositories and a scanned repository must never be able to execute code through the
+scanner. A plugin runs with this tool's privileges — only load code you have reviewed. See
+[Plugins](plugins.md).
 
 ### `sentinel version`
 
@@ -99,7 +151,7 @@ sentinel version
 sentinel version --format json
 ```
 
-`sentinel rules` also accepts `--format terminal|json` and `--scanners <ids>`.
+`sentinel rules` also accepts `--format terminal|json`, `--scanners <ids>` and `--plugin <spec>`.
 
 ### `sentinel report <file>`
 

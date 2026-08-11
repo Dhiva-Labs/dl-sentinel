@@ -1,12 +1,12 @@
 import type { Category, Confidence, RuleMeta, ScannerPlugin, Severity } from '@dl-sentinel/core';
 import { SEVERITY_ORDER } from '@dl-sentinel/core';
-import { BUILTIN_SCANNERS } from '@dl-sentinel/preset';
 import { CliUsageError, parseFlags } from '../args.js';
 import type { ColorFns } from '../colors.js';
 import { makeColors, shouldColor } from '../colors.js';
 import { EXIT } from '../exit-codes.js';
 import type { CliIO } from '../io.js';
 import { parseFormat, parseScannerList } from '../parse.js';
+import { PLUGIN_FLAG, loadPlugins, pluginSpecs, scannerRoster } from '../plugins.js';
 import { rulesHelp } from '../usage.js';
 
 const RULES_FORMATS = ['terminal', 'json'] as const;
@@ -21,11 +21,15 @@ interface RuleRow {
   compliance?: RuleMeta['compliance'];
 }
 
-/** `sentinel rules` — list every rule from the built-in scanners. */
-export function runRules(argv: readonly string[], io: CliIO): number {
+/**
+ * `sentinel rules` — list every rule from the built-in scanners, plus any
+ * scanner loaded with `--plugin` (listed after the built-ins, in flag order).
+ */
+export async function runRules(argv: readonly string[], io: CliIO): Promise<number> {
   const parsed = parseFlags(argv, [
     { name: 'format', takesValue: true },
     { name: 'scanners', takesValue: true },
+    PLUGIN_FLAG,
     { name: 'no-color', takesValue: false },
     { name: 'help', takesValue: false, aliases: ['h'] },
   ]);
@@ -41,11 +45,14 @@ export function runRules(argv: readonly string[], io: CliIO): number {
   }
 
   const format = parseFormat(parsed.values.get('format'), RULES_FORMATS);
-  const filter = parseScannerList(parsed.values.get('scanners'));
+  const plugins = await loadPlugins(pluginSpecs(parsed), io);
+  const roster = scannerRoster(plugins);
+  const filter = parseScannerList(
+    parsed.values.get('scanners'),
+    plugins.map((entry) => entry.plugin.id),
+  );
   const scanners =
-    filter === undefined
-      ? [...BUILTIN_SCANNERS]
-      : BUILTIN_SCANNERS.filter((scanner) => filter.includes(scanner.id));
+    filter === undefined ? roster : roster.filter((scanner) => filter.includes(scanner.id));
 
   if (format === 'json') {
     io.stdout(`${JSON.stringify(toRows(scanners), null, 2)}\n`);

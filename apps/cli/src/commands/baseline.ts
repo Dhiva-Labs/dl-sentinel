@@ -4,12 +4,12 @@ import type { ScanLogger, SentinelConfig } from '@dl-sentinel/core';
 import { createBaseline } from '@dl-sentinel/core';
 import type { ScanOptions } from '@dl-sentinel/engine';
 import { loadConfig } from '@dl-sentinel/engine';
-import { createDefaultEngine } from '@dl-sentinel/preset';
 import { CliUsageError, parseFlags } from '../args.js';
 import { makeColors, shouldColor } from '../colors.js';
 import { EXIT } from '../exit-codes.js';
 import type { CliIO } from '../io.js';
 import { parseScannerList } from '../parse.js';
+import { PLUGIN_FLAG, engineWithPlugins, loadPlugins, pluginSpecs } from '../plugins.js';
 import { createProgressReporter } from '../progress.js';
 import { baselineHelp } from '../usage.js';
 
@@ -27,6 +27,7 @@ export async function runBaseline(argv: readonly string[], io: CliIO): Promise<n
     { name: 'config', takesValue: true },
     { name: 'scanners', takesValue: true },
     { name: 'output', takesValue: true },
+    PLUGIN_FLAG,
     { name: 'quiet', takesValue: false },
     { name: 'no-color', takesValue: false },
     { name: 'help', takesValue: false, aliases: ['h'] },
@@ -42,7 +43,13 @@ export async function runBaseline(argv: readonly string[], io: CliIO): Promise<n
 
   const rawPath = parsed.positionals[0] ?? '.';
   const target = path.resolve(io.cwd, rawPath);
-  const scanners = parseScannerList(parsed.values.get('scanners'));
+  // Plugins load first: a bad spec must fail (64) before anything is scanned,
+  // and `--scanners` may name a plugin's id.
+  const plugins = await loadPlugins(pluginSpecs(parsed), io);
+  const scanners = parseScannerList(
+    parsed.values.get('scanners'),
+    plugins.map((entry) => entry.plugin.id),
+  );
   const configFlag = parsed.values.get('config');
   const outputFlag = parsed.values.get('output');
   const quiet = parsed.bools.has('quiet');
@@ -82,7 +89,7 @@ export async function runBaseline(argv: readonly string[], io: CliIO): Promise<n
     scanOptions.onEvent = (event) => reporter.onEvent(event);
   }
 
-  const report = await createDefaultEngine().scan(scanOptions);
+  const report = await engineWithPlugins(plugins).scan(scanOptions);
 
   const doc = createBaseline(report.findings, {
     target: report.target,

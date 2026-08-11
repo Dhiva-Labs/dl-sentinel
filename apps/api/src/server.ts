@@ -1,9 +1,12 @@
 import { createServer as httpCreateServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { ScannerPlugin } from '@dl-sentinel/core';
 import { TOOL_VERSION } from '@dl-sentinel/core';
-import { createDefaultEngine } from '@dl-sentinel/preset';
+import type { ScanEngine } from '@dl-sentinel/engine';
+import { loadScannerPlugins, validateScannerPlugin } from '@dl-sentinel/engine';
+import { BUILTIN_SCANNERS, createDefaultEngine } from '@dl-sentinel/preset';
 import { extractBearer, resolveAuth, tokenId } from './auth.js';
-import { resolveRuntime, stderrLogger } from './config.js';
+import { pluginSpecsFromEnv, resolveRuntime, stderrLogger } from './config.js';
 import { HttpError, methodNotAllowed, sendError, sendJson } from './http.js';
 import { Notifier } from './notifier.js';
 import { ScanQueue } from './queue.js';
@@ -23,6 +26,8 @@ import type {
 
 interface RequestDeps {
   runtime: SentinelRuntime;
+  /** The full scanner roster (built-ins, then plugins) the API reports on. */
+  scanners: readonly ScannerPlugin[];
   store: ReportStore;
   queue: ScanQueue;
   notifier: Notifier;
@@ -30,6 +35,20 @@ interface RequestDeps {
   staticServer: StaticServer;
   logger: ServerLogger;
   now: () => number;
+}
+
+/**
+ * Register `plugins` on top of the built-in scanners. A plugin whose id
+ * collides with a built-in (or with an earlier plugin) makes this throw, which
+ * — because it runs during {@link createServer} — is a startup failure rather
+ * than a surprise at scan time.
+ */
+function engineWithPlugins(plugins: readonly ScannerPlugin[]): ScanEngine {
+  const engine = createDefaultEngine();
+  for (const plugin of plugins) {
+    engine.register(plugin);
+  }
+  return engine;
 }
 
 /**
@@ -44,7 +63,7 @@ async function handleRequest(
   res: ServerResponse,
   deps: RequestDeps,
 ): Promise<void> {
-  const { runtime, store, queue, notifier, limiter, staticServer, logger, now } = deps;
+  const { runtime, scanners, store, queue, notifier, limiter, staticServer, logger, now } = deps;
   const method = req.method ?? 'GET';
   const url = new URL(req.url ?? '/', 'http://localhost');
   const pathname = url.pathname;
@@ -101,7 +120,19 @@ async function handleRequest(
         });
       }
 
-      await routeApi({ req, res, url, runtime, store, queue, notifier, logger, auth, now });
+      await routeApi({
+        req,
+        res,
+        url,
+        runtime,
+        scanners,
+        store,
+        queue,
+        notifier,
+        logger,
+        auth,
+        now,
+      });
       return;
     }
 
@@ -128,10 +159,17 @@ async function handleRequest(
  * Persisted schedules are likewise reloaded, their `nextRunAt` recomputed so an
  * overdue schedule runs once promptly (not once per missed interval), and the
  * scheduler timer is started.
+ *
+ * Scanner roster: the built-ins plus `options.plugins`, which are validated and
+ * registered here so their rules appear in `/api/rules` and their findings in
+ * reports. Because importing a module is asynchronous, `SENTINEL_PLUGINS` is
+ * resolved by {@link startServer}, not here.
  */
 export function createServer(options: ServerOptions = {}): SentinelApiServer {
   const logger = options.logger ?? stderrLogger();
-  const runtime = resolveRuntime(options, logger);
+  const plugins = resolvePlugins(options, logger);
+  const runtime = resolveRuntime({ ...options, plugins }, logger);
+  const scanners: readonly ScannerPlugin[] = [...BUILTIN_SCANNERS, ...plugins];
   const now = options.now ?? Date.now;
   if (runtime.tokenGenerated) {
     // Required: print the generated token once so the operator can use it.
@@ -141,7 +179,15 @@ export function createServer(options: ServerOptions = {}): SentinelApiServer {
   }
 
   const store = new ReportStore(runtime.dataDir, logger);
-  const engineFactory = options.engineFactory ?? createDefaultEngine;
+  let engineFactory = options.engineFactory;
+  if (engineFactory === undefined) {
+    const build = (): ScanEngine => engineWithPlugins(plugins);
+    // Build one engine now: a plugin id that collides with a built-in must fail
+    // the server's startup, not every scan it later runs. A caller-supplied
+    // factory is left alone — it owns its own roster, and may have side effects.
+    build();
+    engineFactory = build;
+  }
   const queue = new ScanQueue(store, engineFactory, runtime.scanConcurrency, logger);
   const limiter = new RateLimiter(runtime.rateLimit.windowMs, runtime.rateLimit.max);
   const staticServer = createStaticServer(logger, options.webRoot);
@@ -170,6 +216,7 @@ export function createServer(options: ServerOptions = {}): SentinelApiServer {
   const server = httpCreateServer((req, res) => {
     void handleRequest(req, res, {
       runtime,
+      scanners,
       store,
       queue,
       notifier,
@@ -190,17 +237,59 @@ export function createServer(options: ServerOptions = {}): SentinelApiServer {
 }
 
 /**
+ * The plugins a synchronously created server runs with: exactly the ones the
+ * caller passed. Each is validated with the same rules the dynamic loader
+ * applies, so an embedder cannot smuggle a half-built scanner past the checks
+ * a `SENTINEL_PLUGINS` plugin has to pass.
+ *
+ * Importing a module is asynchronous, so `SENTINEL_PLUGINS` cannot be honoured
+ * here — {@link startServer} resolves it and hands the results back through
+ * `options.plugins`. If the variable is set and no plugins were passed, the
+ * server would silently run with fewer scanners than the operator configured,
+ * so that combination is called out loudly.
+ */
+function resolvePlugins(options: ServerOptions, logger: ServerLogger): ScannerPlugin[] {
+  const plugins = options.plugins;
+  if (plugins === undefined) {
+    const configured = pluginSpecsFromEnv(options.env ?? process.env);
+    if (configured.length > 0) {
+      logger.warn(
+        `SENTINEL_PLUGINS names ${configured.length} plugin(s) but this server was built with createServer(); use startServer() to load them, or pass ServerOptions.plugins`,
+      );
+    }
+    return [];
+  }
+  plugins.forEach((plugin, index) =>
+    validateScannerPlugin(plugin, `ServerOptions.plugins[${index}]`),
+  );
+  return [...plugins];
+}
+
+/**
  * Create the server and bind it to the resolved port (option `port`, else `PORT`,
  * else 8752). Returns the listening server. Called by the bin entry (`main.ts`).
+ *
+ * This is where `SENTINEL_PLUGINS` is honoured: its specs are imported and
+ * validated *before* the server exists, and any failure rejects instead of
+ * starting. Refusing to boot is deliberate — a security scanner that quietly
+ * runs with fewer scanners than the operator configured reports a clean result
+ * it never actually checked for. `main.ts` turns the rejection into a stderr
+ * message and a non-zero exit.
  */
-export function startServer(options: ServerOptions = {}): SentinelApiServer {
-  const server = createServer(options);
+export async function startServer(options: ServerOptions = {}): Promise<SentinelApiServer> {
+  const specs = options.plugins === undefined ? pluginSpecsFromEnv(options.env ?? process.env) : [];
+  const loaded = specs.length === 0 ? undefined : await loadScannerPlugins(specs);
+  const server = createServer(loaded === undefined ? options : { ...options, plugins: loaded });
   const port = server.sentinel.port;
   server.listen(port, () => {
     const address = server.address();
     const shownPort = typeof address === 'object' && address !== null ? address.port : port;
+    const pluginNote =
+      server.sentinel.pluginIds.length === 0
+        ? ''
+        : `, plugins=${server.sentinel.pluginIds.join(',')}`;
     process.stderr.write(
-      `[dl-sentinel:api] listening on http://localhost:${shownPort} (scanRoot=${server.sentinel.scanRoot}, dataDir=${server.sentinel.dataDir})\n`,
+      `[dl-sentinel:api] listening on http://localhost:${shownPort} (scanRoot=${server.sentinel.scanRoot}, dataDir=${server.sentinel.dataDir}${pluginNote})\n`,
     );
   });
   return server;

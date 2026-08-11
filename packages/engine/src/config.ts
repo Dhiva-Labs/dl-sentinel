@@ -25,6 +25,21 @@ const TOP_LEVEL_KEYS: readonly string[] = [
   'suppress',
 ];
 
+/**
+ * Keys that are deliberately NOT configuration, mapped to why. A `plugins` key
+ * is the security-relevant one: plugins are executable code, config can live
+ * inside the repository being scanned, so config may never decide what gets
+ * imported (docs/architecture.md §Plugins). It is called out by name rather
+ * than lumped in with typos, so an operator who tries it learns where plugins
+ * actually come from.
+ */
+const REFUSED_KEYS: ReadonlyMap<string, string> = new Map([
+  [
+    'plugins',
+    "scanner plugins are loaded only from the CLI's --plugin flag or the API server's SENTINEL_PLUGINS environment variable, never from a config file",
+  ],
+]);
+
 /** The optional string fields a suppression rule may carry. */
 const SUPPRESS_FIELDS: readonly (keyof SuppressionRule)[] = [
   'rule',
@@ -48,6 +63,8 @@ const VALID_SEVERITIES = new Set<string>(SEVERITY_ORDER);
  * - Unparseable YAML, a non-mapping document, or a known key with the wrong
  *   type → throws with the file path in the message.
  * - Unknown top-level keys are warned about and ignored.
+ * - A `plugins` key is warned about and ignored *specifically*: plugins load
+ *   only from `--plugin` / `SENTINEL_PLUGINS`, never from config.
  *
  * Warnings go to stderr; use the engine's `scan()` (which threads its own
  * `ScanLogger` through) to capture them instead.
@@ -132,6 +149,11 @@ function mergeConfig(
   logger: ScanLogger,
 ): SentinelConfig {
   for (const key of Object.keys(raw)) {
+    const refusal = REFUSED_KEYS.get(key);
+    if (refusal !== undefined) {
+      logger.warn(`${source}: "${key}" is ignored — ${refusal}`);
+      continue;
+    }
     if (!TOP_LEVEL_KEYS.includes(key)) {
       logger.warn(`${source}: unknown configuration key "${key}" (ignored)`);
     }

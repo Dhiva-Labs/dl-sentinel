@@ -29,8 +29,20 @@ export interface ParsedFlags {
   readonly positionals: readonly string[];
   /** Value flags, keyed by canonical name (last occurrence wins). */
   readonly values: ReadonlyMap<string, string>;
+  /**
+   * Every occurrence of each value flag, in command-line order. `values` is the
+   * right accessor for a flag that is given once (`--format`); this is the one
+   * for a repeatable flag (`--plugin a --plugin b`), where each occurrence adds
+   * to the set rather than replacing it.
+   */
+  readonly lists: ReadonlyMap<string, readonly string[]>;
   /** Boolean flags that were present, by canonical name. */
   readonly bools: ReadonlySet<string>;
+}
+
+/** Every value given for a repeatable flag, in order; `[]` when it was absent. */
+export function repeated(parsed: ParsedFlags, name: string): string[] {
+  return [...(parsed.lists.get(name) ?? [])];
 }
 
 /** Parse `tokens` against `specs`. Throws {@link CliUsageError} on any misuse. */
@@ -43,6 +55,7 @@ export function parseFlags(tokens: readonly string[], specs: readonly FlagSpec[]
 
   const positionals: string[] = [];
   const values = new Map<string, string>();
+  const lists = new Map<string, string[]>();
   const bools = new Set<string>();
 
   let index = 0;
@@ -89,6 +102,9 @@ export function parseFlags(tokens: readonly string[], specs: readonly FlagSpec[]
         index += 1;
       }
       values.set(spec.name, value);
+      const seen = lists.get(spec.name);
+      if (seen === undefined) lists.set(spec.name, [value]);
+      else seen.push(value);
     } else {
       if (inlineValue !== undefined) {
         throw new CliUsageError(`Option ${dashes}${name} does not take a value`);
@@ -97,5 +113,5 @@ export function parseFlags(tokens: readonly string[], specs: readonly FlagSpec[]
     }
   }
 
-  return { positionals, values, bools };
+  return { positionals, values, lists, bools };
 }

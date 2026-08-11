@@ -2,6 +2,7 @@ import { TOOL_NAME, TOOL_VERSION } from '@dl-sentinel/core';
 import { EXIT } from './exit-codes.js';
 import type { CliIO } from './io.js';
 import { runBaseline } from './commands/baseline.js';
+import { runPlugins } from './commands/plugins.js';
 import { runReport } from './commands/report.js';
 import { runRules } from './commands/rules.js';
 import { runScan } from './commands/scan.js';
@@ -51,6 +52,8 @@ async function dispatch(argv: readonly string[], io: CliIO): Promise<number> {
       return runBaseline(rest, io);
     case 'rules':
       return runRules(rest, io);
+    case 'plugins':
+      return runPlugins(rest, io);
     case 'report':
       return runReport(rest, io);
     case 'version':

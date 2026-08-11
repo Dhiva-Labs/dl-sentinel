@@ -17,13 +17,13 @@ import {
 } from '@dl-sentinel/core';
 import type { ScanOptions } from '@dl-sentinel/engine';
 import { loadConfig } from '@dl-sentinel/engine';
-import { createDefaultEngine } from '@dl-sentinel/preset';
 import { renderReport } from '@dl-sentinel/reporting';
 import { CliUsageError, parseFlags } from '../args.js';
 import { makeColors, shouldColor } from '../colors.js';
 import { EXIT } from '../exit-codes.js';
 import type { CliIO } from '../io.js';
 import { parseFormat, parseScannerList, parseSeverityList } from '../parse.js';
+import { PLUGIN_FLAG, engineWithPlugins, loadPlugins, pluginSpecs } from '../plugins.js';
 import { createProgressReporter } from '../progress.js';
 import { scanHelp } from '../usage.js';
 
@@ -46,6 +46,7 @@ export async function runScan(argv: readonly string[], io: CliIO): Promise<numbe
     { name: 'fail-on', takesValue: true },
     { name: 'baseline', takesValue: true },
     { name: 'write-baseline', takesValue: true },
+    PLUGIN_FLAG,
     { name: 'quiet', takesValue: false },
     { name: 'no-color', takesValue: false },
     { name: 'help', takesValue: false, aliases: ['h'] },
@@ -63,7 +64,13 @@ export async function runScan(argv: readonly string[], io: CliIO): Promise<numbe
   const rawPath = parsed.positionals[0] ?? '.';
   const target = path.resolve(io.cwd, rawPath);
   const format = parseFormat(parsed.values.get('format'), SCAN_FORMATS);
-  const scanners = parseScannerList(parsed.values.get('scanners'));
+  // Plugins load before anything else runs, so a bad spec fails fast (64) and
+  // `--scanners` can name a plugin's id.
+  const plugins = await loadPlugins(pluginSpecs(parsed), io);
+  const scanners = parseScannerList(
+    parsed.values.get('scanners'),
+    plugins.map((entry) => entry.plugin.id),
+  );
   const failOn = parseSeverityList(parsed.values.get('fail-on'), 'fail-on');
   const configFlag = parsed.values.get('config');
   const outputPath = parsed.values.get('output');
@@ -114,7 +121,7 @@ export async function runScan(argv: readonly string[], io: CliIO): Promise<numbe
     scanOptions.onEvent = (event) => reporter.onEvent(event);
   }
 
-  const scanned = await createDefaultEngine().scan(scanOptions);
+  const scanned = await engineWithPlugins(plugins).scan(scanOptions);
   // Findings after engine-side suppression. Both --baseline (partition) and
   // --write-baseline (regenerate) operate on this full set, so a run that does
   // both still records every current finding even though it reports only new.
