@@ -6,6 +6,7 @@
   },
   "include": ["src"],
   "references": [
+    { "path": "../../packages/attack-paths" },
     { "path": "../../packages/core" },
     { "path": "../../packages/engine" },
     { "path": "../../packages/preset" },

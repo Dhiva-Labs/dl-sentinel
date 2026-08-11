@@ -24,6 +24,7 @@ Scans a directory with the registered scanners and prints a report.
 | `--baseline <path>` | file path | Compare against a baseline and report only findings not already in it. |
 | `--write-baseline <path>` | file path | Write a baseline of this scan's findings after reporting. |
 | `--plugin <spec>` | file path or package name | Load an external scanner plugin. Repeatable — see [Loading external scanners](#loading-external-scanners---plugin). |
+| `--paths` | flag | Correlate the reported findings into candidate attack chains — see [Attack paths](attack-paths.md). |
 | `--quiet` | flag | Suppress the stderr progress output (and the `--write-baseline` summary line). |
 | `--no-color` | flag | Disable ANSI color (also honored via `NO_COLOR` and auto-off when not a TTY). |
 
@@ -41,6 +42,13 @@ the engine first; the baseline comparison runs on those already-suppressed findi
 freshly written baseline captures the full current set. Produce a baseline with
 [`sentinel baseline`](#sentinel-baseline-target) or with `--write-baseline`.
 
+**Attack paths.** With `--paths`, the findings the report is about to show are correlated into
+candidate attack chains and attached as `report.attackPaths`: an "Attack paths" section is appended
+to `terminal` and `markdown` output, `json` carries the array, and `sarif` is unchanged. Combined
+with `--baseline`, only the new findings are correlated. Paths **never affect the exit code** — they
+re-present findings the policy has already counted — and they are candidates for review, never
+verified exploits. Full catalog and the honesty contract: [Attack paths](attack-paths.md).
+
 Examples:
 
 ```bash
@@ -52,6 +60,7 @@ sentinel scan . --scanners secrets,dependencies
 sentinel scan . --fail-on critical,high
 sentinel scan . --baseline .sentinel-baseline.json        # fail only on new findings
 sentinel scan . --write-baseline .sentinel-baseline.json  # scan and (re)write a baseline
+sentinel scan . --paths                                   # add candidate attack paths
 ```
 
 ### `sentinel baseline [target]`
