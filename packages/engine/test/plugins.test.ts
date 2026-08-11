@@ -325,6 +325,6 @@ describe('config: a plugins key is ignored, not honored', () => {
     // The rest of the file still applies, and nothing named "plugins" survives.
     expect(config.maxFileSizeBytes).toBe(2048);
     expect(Object.keys(config)).toEqual(Object.keys(defaultConfig()));
-    expect((config as Record<string, unknown>).plugins).toBeUndefined();
+    expect((config as unknown as Record<string, unknown>).plugins).toBeUndefined();
   });
 });

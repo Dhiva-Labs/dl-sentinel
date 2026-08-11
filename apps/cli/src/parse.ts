@@ -28,14 +28,21 @@ export function parseFormat<T extends string>(value: string | undefined, allowed
   throw new CliUsageError(`Invalid --format "${value}" (expected one of ${allowed.join(', ')})`);
 }
 
-/** Validate `--scanners` against the built-in scanner ids. */
-export function parseScannerList(value: string | undefined): string[] | undefined {
+/**
+ * Validate `--scanners` against the registered scanner ids: the built-ins, plus
+ * the ids of any plugins loaded from `--plugin` (so `--scanners my-plugin` is
+ * accepted exactly when that plugin was loaded).
+ */
+export function parseScannerList(
+  value: string | undefined,
+  pluginIds: readonly string[] = [],
+): string[] | undefined {
   if (value === undefined) return undefined;
   const ids = splitCsv(value);
   if (ids.length === 0) {
     throw new CliUsageError('--scanners requires at least one scanner id');
   }
-  const known = new Set(BUILTIN_SCANNERS.map((scanner) => scanner.id));
+  const known = new Set([...BUILTIN_SCANNERS.map((scanner) => scanner.id), ...pluginIds]);
   const unknown = ids.filter((id) => !known.has(id));
   if (unknown.length > 0) {
     throw new CliUsageError(
