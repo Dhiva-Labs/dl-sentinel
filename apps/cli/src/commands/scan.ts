@@ -17,8 +17,14 @@ import {
 } from '@dl-sentinel/core';
 import type { ScanOptions } from '@dl-sentinel/engine';
 import { loadConfig } from '@dl-sentinel/engine';
+import { findAttackPaths } from '@dl-sentinel/attack-paths';
 import { renderReport } from '@dl-sentinel/reporting';
 import { CliUsageError, parseFlags } from '../args.js';
+import {
+  buildTargetGraph,
+  renderAttackPathsMarkdown,
+  renderAttackPathsTerminal,
+} from '../attack-paths.js';
 import { makeColors, shouldColor } from '../colors.js';
 import { EXIT } from '../exit-codes.js';
 import type { CliIO } from '../io.js';
@@ -36,6 +42,11 @@ const SCAN_FORMATS: readonly ReportFormat[] = ['terminal', 'json', 'markdown', '
  * Optional baseline handling: `--baseline <file>` narrows the report to findings
  * absent from that baseline (the policy/exit code then reflects NEW findings
  * only); `--write-baseline <file>` records the scan's findings after reporting.
+ *
+ * Optional attack-path analysis: `--paths` correlates the *reported* findings
+ * (so it composes with `--baseline`) into candidate chains and attaches them as
+ * `report.attackPaths`. It never affects the exit code — a path re-presents
+ * findings the policy has already counted.
  */
 export async function runScan(argv: readonly string[], io: CliIO): Promise<number> {
   const parsed = parseFlags(argv, [
@@ -47,6 +58,7 @@ export async function runScan(argv: readonly string[], io: CliIO): Promise<numbe
     { name: 'baseline', takesValue: true },
     { name: 'write-baseline', takesValue: true },
     PLUGIN_FLAG,
+    { name: 'paths', takesValue: false },
     { name: 'quiet', takesValue: false },
     { name: 'no-color', takesValue: false },
     { name: 'help', takesValue: false, aliases: ['h'] },
@@ -76,6 +88,7 @@ export async function runScan(argv: readonly string[], io: CliIO): Promise<numbe
   const outputPath = parsed.values.get('output');
   const baselineFlag = parsed.values.get('baseline');
   const writeBaselineFlag = parsed.values.get('write-baseline');
+  const wantPaths = parsed.bools.has('paths');
   const quiet = parsed.bools.has('quiet');
   const noColorFlag = parsed.bools.has('no-color');
 
@@ -140,7 +153,17 @@ export async function runScan(argv: readonly string[], io: CliIO): Promise<numbe
     };
   }
 
-  const rendered = renderReport(report, format);
+  // Attack paths run after the baseline split so they correlate exactly what
+  // the report shows, and before rendering so `--format json` carries them.
+  if (wantPaths) {
+    const graph = await buildTargetGraph(target);
+    report = { ...report, attackPaths: findAttackPaths(report, graph) };
+    if (report.attackPaths?.length === 0 && !quiet) {
+      io.stderr('No attack-path candidates found.\n');
+    }
+  }
+
+  const rendered = withAttackPaths(renderReport(report, format), report, format, wantPaths);
   if (outputPath !== undefined) {
     const dest = path.resolve(io.cwd, outputPath);
     try {
@@ -170,6 +193,29 @@ export async function runScan(argv: readonly string[], io: CliIO): Promise<numbe
   }
 
   return evaluatePolicy(report.stats, config.policy).pass ? EXIT.OK : EXIT.POLICY;
+}
+
+/**
+ * Append the "Attack paths" section to a rendered report, for the formats that
+ * are read by humans. `json` already carries `report.attackPaths` in its own
+ * structure and `sarif` is deliberately left alone, so both pass through.
+ */
+function withAttackPaths(
+  rendered: string,
+  report: Report,
+  format: ReportFormat,
+  wantPaths: boolean,
+): string {
+  if (!wantPaths) return rendered;
+  const paths = report.attackPaths ?? [];
+  const section =
+    format === 'terminal'
+      ? renderAttackPathsTerminal(paths, report.findings)
+      : format === 'markdown'
+        ? renderAttackPathsMarkdown(paths, report.findings)
+        : '';
+  if (section === '') return rendered;
+  return `${rendered.replace(/\n+$/, '')}\n\n${section}`;
 }
 
 /**
