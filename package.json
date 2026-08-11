@@ -20,7 +20,7 @@
     "typecheck": "tsc -b",
     "typecheck:tests": "tsc -p tsconfig.tests.json",
     "bundle:action": "npm run build && ncc build apps/action/dist/main.js -o apps/action/bundle --minify --no-source-map-register",
-    "bundle:cli": "npm run build && ncc build apps/cli/dist/main.js -o packaging/cli-bundle --minify --no-source-map-register",
+    "bundle:cli": "npm run build && ncc build apps/cli/dist/main.js -o packaging/cli-bundle --no-source-map-register",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "npm run format:check && npm run typecheck && npm run typecheck:tests"

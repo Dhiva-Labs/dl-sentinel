@@ -1,0 +1,11 @@
+# packaging/cli-bundle/index.js is generated, but its source is not missing:
+# this is a native package and the complete TypeScript sources it is built from
+# ship in this very source package (apps/cli/src/, packages/*/src/,
+# scanners/*/src/ — 178 .ts files). The bundle is reproduced from them with
+# `npm run bundle:cli` (tsc, then ncc), and it is deliberately NOT minified so
+# the shipped artifact stays readable.
+#
+# It is pre-built rather than built on the buildd because Launchpad's builders
+# have no outbound network access and the TypeScript/ncc toolchain would need
+# the npm registry; see the Build-Depends comment in debian/control.
+dlsentinel source: source-is-missing [packaging/cli-bundle/index.js]
