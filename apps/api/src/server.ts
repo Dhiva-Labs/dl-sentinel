@@ -179,10 +179,15 @@ export function createServer(options: ServerOptions = {}): SentinelApiServer {
   }
 
   const store = new ReportStore(runtime.dataDir, logger);
-  const engineFactory = options.engineFactory ?? (() => engineWithPlugins(plugins));
-  // Build one engine now: a plugin id that collides with a built-in must fail
-  // the server's startup, not every scan it later runs.
-  engineFactory();
+  let engineFactory = options.engineFactory;
+  if (engineFactory === undefined) {
+    const build = (): ScanEngine => engineWithPlugins(plugins);
+    // Build one engine now: a plugin id that collides with a built-in must fail
+    // the server's startup, not every scan it later runs. A caller-supplied
+    // factory is left alone — it owns its own roster, and may have side effects.
+    build();
+    engineFactory = build;
+  }
   const queue = new ScanQueue(store, engineFactory, runtime.scanConcurrency, logger);
   const limiter = new RateLimiter(runtime.rateLimit.windowMs, runtime.rateLimit.max);
   const staticServer = createStaticServer(logger, options.webRoot);
