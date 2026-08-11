@@ -1,0 +1,6 @@
+#!/bin/sh
+# DL Sentinel ships as a single self-contained JavaScript bundle rather than an
+# executable, so it is launched through the system node. `exec` keeps the
+# process (and therefore the exit code, which CI relies on) intact: 0 clean,
+# 1 policy violated, 2 error, 64 usage.
+exec /usr/bin/node /usr/share/dlsentinel/sentinel.mjs "$@"

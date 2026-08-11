@@ -25,3 +25,13 @@ apps/action/bundle/
 # Local agent/tooling state — never commit
 .claude/
 CLAUDE.md
+
+# Generated CLI bundle for Debian packaging (npm run bundle:cli).
+packaging/cli-bundle/
+
+# debhelper build output. Only the hand-written packaging inputs are tracked.
+debian/.debhelper/
+debian/dlsentinel/
+debian/files
+debian/*.substvars
+debian/debhelper-build-stamp

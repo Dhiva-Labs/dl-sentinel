@@ -1,0 +1,46 @@
+Source: dlsentinel
+Section: devel
+Priority: optional
+Maintainer: Dhiva Labs <dhivakar1010@gmail.com>
+# debhelper only. The package installs a pre-built, self-contained JavaScript
+# bundle (packaging/cli-bundle/index.js, produced by `npm run bundle:cli`), so
+# nothing is compiled here. That is deliberate: Launchpad's build farm has no
+# outbound network access, and a Node build would need the npm registry for the
+# TypeScript/ncc toolchain. Bundling on the maintainer's machine keeps the
+# builder offline-clean and keeps ~66 MB of build-time node_modules out of the
+# source package.
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Homepage: https://github.com/Dhiva-Labs/dl-sentinel
+Rules-Requires-Root: no
+
+Package: dlsentinel
+Architecture: all
+# The bundle is plain JavaScript with no native code, hence Architecture: all.
+#
+# nodejs (>= 18) rather than (>= 20): the upstream project declares Node 20 in
+# package.json, but that floor is the development toolchain's, not the shipped
+# CLI's. The bundled CLI was verified against noble's own nodejs 18.19.1 —
+# version, rule listing and a full scan all behave identically — and noble ships
+# no nodejs newer than 18, so a >= 20 dependency would make this package
+# uninstallable on a stock Ubuntu 24.04 system.
+Depends: ${misc:Depends}, nodejs (>= 18)
+Description: Security scanner for secrets, dependencies, code and infrastructure
+ DL Sentinel scans a repository for exposed secrets, vulnerable dependencies,
+ insecure source-code patterns, container and infrastructure misconfiguration,
+ API definition security issues and smart-contract risk patterns, then reports
+ structured findings as terminal output, JSON, Markdown or SARIF 2.1.0.
+ .
+ Scanning runs entirely on the local machine. Source code is never uploaded,
+ scanned code is never executed, and secret values are redacted before they can
+ reach a finding, a report or a log line. The scanner makes no network request
+ at all unless a network-backed vulnerability data source is explicitly enabled
+ in configuration.
+ .
+ The catalogue ships 88 rules across six scanners, most of them mapped to CWE
+ and OWASP Top 10 (2021) identifiers. Baselines let the tool be adopted on an
+ existing codebase and fail only on newly introduced findings, which together
+ with CI-friendly exit codes makes it usable as a pipeline gate.
+ .
+ This package provides the command-line scanner. The self-hosted API server and
+ web dashboard are not included.

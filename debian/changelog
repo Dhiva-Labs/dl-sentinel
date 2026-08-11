@@ -1,0 +1,15 @@
+dlsentinel (0.1.0~noble1) noble; urgency=medium
+
+  * Initial release.
+  * Six scanners with 88 rules: secrets, dependencies, source code,
+    container and infrastructure configuration, API definitions and
+    smart contracts.
+  * 76 rules carry CWE and OWASP Top 10 (2021) compliance mappings.
+  * Reports as terminal output, JSON, Markdown or SARIF 2.1.0.
+  * Baselines and suppression rules, so an existing codebase can adopt the
+    scanner and fail only on newly introduced findings.
+  * Infrastructure graph (sentinel graph) and attack-path correlation
+    (sentinel scan --paths).
+  * CI-friendly exit codes: 0 clean, 1 policy violated, 2 error, 64 usage.
+
+ -- Dhiva Labs <dhivakar1010@gmail.com>  Tue, 11 Aug 2026 07:30:00 +0530

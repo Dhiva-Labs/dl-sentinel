@@ -1,0 +1,113 @@
+.TH DL\-SENTINEL 1 "August 2026" "DL Sentinel 0.1.0" "User Commands"
+.SH NAME
+dl\-sentinel \- scan a repository for secrets, vulnerable dependencies and insecure configuration
+.SH SYNOPSIS
+.B sentinel
+.I command
+.RI [ options ]
+.SH DESCRIPTION
+.B DL Sentinel
+scans a directory with six scanners \- secrets, dependencies, source code,
+container and infrastructure configuration, API definitions and smart contracts
+\- and reports structured findings.
+.PP
+Scanning is local and read\-only. Scanned code is never executed, source is
+never uploaded, and secret values are redacted before they reach a finding, a
+report or a log line. No network request is made unless a network\-backed
+vulnerability data source is explicitly enabled in configuration.
+.PP
+The command is installed as both
+.B dl\-sentinel
+and
+.BR sentinel .
+.SH COMMANDS
+.TP
+.BI scan " [path]"
+Scan a directory and print a report. Defaults to the current directory.
+.TP
+.BI baseline " [path]"
+Record the current findings as a baseline file, so a later scan can report only
+findings introduced afterwards.
+.TP
+.BI report " file"
+Re\-render a saved JSON report in another format without re\-scanning.
+.TP
+.B rules
+List every rule from every registered scanner.
+.TP
+.BI graph " [path]"
+Render the deployment surface described by Compose, Kubernetes and Dockerfile
+sources as JSON or Mermaid.
+.TP
+.B plugins
+Load and describe external scanner plugins without scanning.
+.TP
+.B version
+Print the tool name and version.
+.SH OPTIONS
+.TP
+.BI \-\-format " format"
+Output format: \fBterminal\fR (default), \fBjson\fR, \fBmarkdown\fR or \fBsarif\fR.
+.TP
+.BI \-\-output " path"
+Write the report to a file instead of standard output.
+.TP
+.BI \-\-config " path"
+Use an explicit \fBsentinel.yml\fR instead of discovering one in the target.
+.TP
+.BI \-\-scanners " ids"
+Run only a comma\-separated subset of scanners.
+.TP
+.BI \-\-fail\-on " severities"
+Override the severities that cause a failed policy for this run.
+.TP
+.BI \-\-baseline " path"
+Compare against a baseline and report only findings absent from it.
+.TP
+.BI \-\-write\-baseline " path"
+Write a baseline of this scan's findings after reporting.
+.TP
+.B \-\-paths
+Correlate findings into candidate attack paths and append them to the report.
+.TP
+.BI \-\-plugin " spec"
+Load an external scanner plugin. Repeatable.
+.TP
+.B \-\-quiet
+Suppress progress output on standard error.
+.TP
+.B \-\-no\-color
+Disable ANSI colour. Also honoured through the \fBNO_COLOR\fR environment variable.
+.SH EXIT STATUS
+.TP
+.B 0
+Scan completed and the policy passed.
+.TP
+.B 1
+Findings were present at a severity listed in \fBpolicy.failOn\fR.
+.TP
+.B 2
+Scan or internal error.
+.TP
+.B 64
+Usage error.
+.SH FILES
+.TP
+.B sentinel.yml
+Per\-project configuration read from the scan target: include and exclude
+globs, per\-scanner settings, suppression rules and the failure policy.
+.SH EXAMPLES
+.TP
+Scan the current directory:
+.B sentinel scan .
+.TP
+Produce SARIF for a CI code\-scanning upload:
+.B sentinel scan . \-\-format sarif \-\-output results.sarif
+.TP
+Adopt the scanner on an existing codebase, then fail only on new findings:
+.B sentinel baseline . && sentinel scan . \-\-baseline .sentinel\-baseline.json
+.SH SEE ALSO
+Full documentation in
+.IR /usr/share/doc/dlsentinel/ ,
+and at
+.IR https://github.com/Dhiva\-Labs/dl\-sentinel .

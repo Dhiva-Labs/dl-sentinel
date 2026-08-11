@@ -1,0 +1,57 @@
+#!/usr/bin/make -f
+
+# Nothing is compiled at package-build time. packaging/cli-bundle/index.js is a
+# self-contained JavaScript bundle produced on the maintainer's machine with
+# `npm run bundle:cli` (tsc, then ncc) and shipped inside the source package —
+# see the Build-Depends comment in debian/control for why the build is not done
+# on the builder.
+BUNDLE := packaging/cli-bundle/index.js
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	# Fail loudly rather than silently shipping a package with no scanner in
+	# it: the bundle is generated and gitignored, so a build run from a fresh
+	# clone without `npm run bundle:cli` would otherwise produce a .deb whose
+	# /usr/bin/sentinel points at a file that does not exist.
+	test -f $(BUNDLE) || { \
+		echo "ERROR: $(BUNDLE) is missing. Run 'npm run bundle:cli' first."; \
+		exit 1; \
+	}
+
+override_dh_auto_test:
+	# The vitest suite needs the dev toolchain from node_modules, which is not
+	# in the source package. It runs in CI and before a release, not here.
+
+override_dh_auto_clean:
+	# dh_auto_clean would try to infer a build system from package.json; there
+	# is nothing to clean because nothing is built here.
+
+override_dh_clean:
+	# dh_clean deletes __pycache__ directories as standard build junk. In this
+	# repository tests/fixtures/vulnerable-app/src/__pycache__/ is a committed
+	# *fixture* — it is how the engine's default-exclude behaviour is tested —
+	# so an unguarded package build silently deletes part of the test suite.
+	dh_clean -Xtests/fixtures
+
+override_dh_auto_install:
+	# Installed as .mjs, not .js: the bundle is an ES module, and ncc conveys
+	# that with a sibling package.json containing {"type":"module"}. Only the
+	# bundle itself is packaged, so without the .mjs extension node would parse
+	# it as CommonJS and refuse to start ("To load an ES module, set type").
+	# The extension is self-describing and needs no marker file.
+	#
+	# It is data rather than a program — the wrapper runs it through node — so
+	# it is mode 0644, and ncc's `#!/usr/bin/env node` line is stripped so it
+	# is not a shebang on a non-executable file (lintian script-not-executable).
+	mkdir -p debian/dlsentinel/usr/share/dlsentinel
+	sed '1{/^#!/d}' $(BUNDLE) > debian/dlsentinel/usr/share/dlsentinel/sentinel.mjs
+	chmod 0644 debian/dlsentinel/usr/share/dlsentinel/sentinel.mjs
+	# dl-sentinel is the canonical entry point: it cannot collide with another
+	# package's binary. `sentinel` is the name every upstream document and
+	# example uses, so it is provided as a symlink alongside it.
+	install -D -m 0755 debian/dlsentinel.wrapper debian/dlsentinel/usr/bin/dl-sentinel
+	dh_link usr/bin/dl-sentinel usr/bin/sentinel
+	install -D -m 0644 debian/dl-sentinel.1 debian/dlsentinel/usr/share/man/man1/dl-sentinel.1
+	dh_link usr/share/man/man1/dl-sentinel.1.gz usr/share/man/man1/sentinel.1.gz
