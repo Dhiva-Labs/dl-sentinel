@@ -45,6 +45,36 @@ describe('report command', () => {
     expect(sarif.version).toBe('2.1.0');
   });
 
+  it('re-renders attack paths saved by scan --paths', async () => {
+    // A report produced with --paths carries `attackPaths`; re-rendering it as
+    // text must not silently drop that section.
+    const withPaths = join(tmp, 'scan-paths.json');
+    const scan = await runCli([
+      'scan',
+      VULNERABLE,
+      '--paths',
+      '--format',
+      'json',
+      '--output',
+      withPaths,
+    ]);
+    expect(scan.code).toBe(EXIT.POLICY);
+    const saved = JSON.parse(readFileSync(withPaths, 'utf8')) as Report;
+    expect(saved.attackPaths?.length ?? 0).toBeGreaterThan(0);
+
+    const terminal = await runCli(['report', withPaths, '--format', 'terminal']);
+    expect(terminal.code).toBe(EXIT.OK);
+    expect(terminal.stdout).toContain('Attack paths');
+
+    const markdown = await runCli(['report', withPaths, '--format', 'markdown']);
+    expect(markdown.stdout).toContain('Attack paths');
+  });
+
+  it('omits the attack-paths section for a report saved without --paths', async () => {
+    const { stdout } = await runCli(['report', savedReport, '--format', 'terminal']);
+    expect(stdout).not.toContain('Attack paths');
+  });
+
   it('round-trips JSON back to an equivalent Report', async () => {
     const { stdout } = await runCli(['report', savedReport, '--format', 'json']);
     const original = JSON.parse(readFileSync(savedReport, 'utf8')) as Report;

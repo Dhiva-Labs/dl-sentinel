@@ -40,6 +40,10 @@ top of the same local scan.
   [docs/deployment.md](docs/deployment.md).
 - **Infrastructure graph** — `sentinel graph` renders the deployment surface (services, images,
   volumes, ports, privileged and host-mount edges) as JSON or Mermaid.
+- **Attack paths** — `sentinel scan --paths` correlates findings (and the graph) into candidate
+  chains, such as a committed AWS key beside a public bucket, or a privileged container that is
+  also host-networked. Candidates for review, never claims of exploitability. See
+  [docs/attack-paths.md](docs/attack-paths.md).
 - **Extensible** — third-party scanners load as plugins ([docs/plugins.md](docs/plugins.md)).
 
 ## Runs standalone
@@ -105,6 +109,7 @@ Every key is optional and falls back to built-in defaults. See
 | `apps/api` | `@dl-sentinel/api-server` | Self-hosted HTTP API |
 | `apps/cli` | `@dl-sentinel/cli` | `sentinel` command-line tool |
 | `apps/web` | `@dl-sentinel/web` | Dashboard static assets, served by the API |
+| `packages/attack-paths` | `@dl-sentinel/attack-paths` | Correlates findings into candidate attack chains |
 | `packages/core` | `@dl-sentinel/core` | Shared types, finding model, utilities |
 | `packages/engine` | `@dl-sentinel/engine` | Orchestration: discovery, config, execution |
 | `packages/preset` | `@dl-sentinel/preset` | Default engine with every built-in scanner registered |
@@ -129,6 +134,7 @@ See [docs/architecture.md](docs/architecture.md) for the full design and data fl
 - [Configuration](docs/configuration.md)
 - [CLI reference](docs/cli.md)
 - [API reference](docs/api.md)
+- [Attack paths](docs/attack-paths.md)
 - [Plugins](docs/plugins.md)
 - [Contributing](docs/contributing.md)
 - [Security](docs/security.md)

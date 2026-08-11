@@ -2,6 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Report, ReportFormat } from '@dl-sentinel/core';
 import { renderReport } from '@dl-sentinel/reporting';
+import { renderAttackPathsMarkdown, renderAttackPathsTerminal } from '../attack-paths.js';
 import { CliUsageError, parseFlags } from '../args.js';
 import { EXIT } from '../exit-codes.js';
 import type { CliIO } from '../io.js';
@@ -60,7 +61,17 @@ export async function runReport(argv: readonly string[], io: CliIO): Promise<num
     throw new CliUsageError(`Report file ${file} is not a valid DL Sentinel report`);
   }
 
-  const rendered = renderReport(data, format);
+  // A saved report may carry attack paths from `scan --paths`; re-render them
+  // in the text formats too, so `report` shows everything the original scan did.
+  // json already carries them on the object, and sarif never includes them.
+  const body = renderReport(data, format);
+  const section =
+    format === 'terminal'
+      ? renderAttackPathsTerminal(data.attackPaths ?? [], data.findings)
+      : format === 'markdown'
+        ? renderAttackPathsMarkdown(data.attackPaths ?? [], data.findings)
+        : '';
+  const rendered = section === '' ? body : `${body}\n\n${section}`;
   if (outputPath !== undefined) {
     const dest = path.resolve(io.cwd, outputPath);
     try {
