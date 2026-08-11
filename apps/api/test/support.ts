@@ -7,6 +7,7 @@ import type { ScanEngine } from '@dl-sentinel/engine';
 import { createServer } from '../src/index.js';
 import type {
   AuditEntry,
+  FetchLike,
   ScanRecord,
   ServerLogger,
   ServerOptions,
@@ -79,7 +80,11 @@ export async function startTestServer(overrides: ServerOptions = {}): Promise<Te
       //      audit append.
       //   3. Drain the queue so every queued/in-flight job finishes its writes,
       //      then stop the pool.
-      //   4. Flush outstanding async writes (audit-log appends).
+      //   4. Stop the notifier, so deliveries started by those jobs settle
+      //      before anything else — a delivery writes `lastError` back to a
+      //      channel file, and it runs off the job's critical path, so queue
+      //      drain alone does not imply it is finished.
+      //   5. Flush outstanding async writes (audit-log appends).
       // Only then is it safe to remove the directory.
       server.scheduler.stop();
       await new Promise<void>((resolve, reject) => {
@@ -90,6 +95,7 @@ export async function startTestServer(overrides: ServerOptions = {}): Promise<Te
       });
       await server.queue.drain();
       await server.queue.stop();
+      await server.notifier.stop();
       await (server as unknown as { store: { flushWrites(): Promise<void> } }).store.flushWrites();
       if (ownsDataDir) rmSync(dataDir, { recursive: true, force: true });
     },
@@ -245,6 +251,81 @@ export async function waitForAuditEntry(
     if (Date.now() > deadline) throw new Error('Timed out waiting for a matching audit entry');
     await new Promise((resolve) => setTimeout(resolve, 15));
   }
+}
+
+/** One outbound delivery captured by {@link fakeFetch}. */
+export interface RecordedDelivery {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  /** The exact body string that was sent — what the HMAC is computed over. */
+  body: string;
+  /** Whether an abort signal (the 5 s delivery deadline) was attached. */
+  hasSignal: boolean;
+}
+
+export interface FakeFetch {
+  /** Pass as `ServerOptions.fetch`; no test ever reaches a real network. */
+  impl: FetchLike;
+  /** Every delivery attempted, in order. */
+  calls: RecordedDelivery[];
+  /** Answer subsequent calls with this status (default 200). */
+  respondWith(status: number): void;
+  /** Make subsequent calls reject with this error (e.g. a simulated timeout). */
+  failWith(error: Error): void;
+  /** Stop failing and answer 200 again. */
+  reset(): void;
+}
+
+/**
+ * A `fetch` stand-in that records deliveries instead of making them. The whole
+ * notification suite runs on this: nothing in it may open a socket, and the
+ * recorded body/headers are what the signature and redaction assertions read.
+ */
+export function fakeFetch(): FakeFetch {
+  const calls: RecordedDelivery[] = [];
+  let status = 200;
+  let failure: Error | undefined;
+
+  const impl: FetchLike = (input, init) => {
+    calls.push({
+      url: input,
+      method: init?.method ?? 'GET',
+      headers: { ...(init?.headers ?? {}) },
+      body: init?.body ?? '',
+      hasSignal: init?.signal !== undefined,
+    });
+    if (failure !== undefined) return Promise.reject(failure);
+    return Promise.resolve({ ok: status < 400, status });
+  };
+
+  return {
+    impl,
+    calls,
+    respondWith(next) {
+      status = next;
+      failure = undefined;
+    },
+    failWith(error) {
+      failure = error;
+    },
+    reset() {
+      status = 200;
+      failure = undefined;
+    },
+  };
+}
+
+/**
+ * An engine that always throws, so a job settles as `failed` through the real
+ * queue path (rather than by hand-editing a record).
+ */
+export function failingEngine(message = 'engine exploded'): ScanEngine {
+  return {
+    register: () => {},
+    plugins: () => [],
+    scan: () => Promise.reject(new Error(message)),
+  };
 }
 
 /**

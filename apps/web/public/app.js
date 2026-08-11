@@ -211,6 +211,77 @@ function formatUserRow(user) {
   };
 }
 
+// Notification channels — mirror of apps/web/src/notifications.ts.
+const NOTIFICATION_EVENTS = ['scan.completed', 'scan.failed', 'policy.violated', 'schedule.failed'];
+
+const EVENT_LABELS = {
+  'scan.completed': 'Scan completed',
+  'scan.failed': 'Scan failed',
+  'policy.violated': 'Policy violated',
+  'schedule.failed': 'Schedule failed',
+};
+
+// Hosts for which the API accepts plain http; everything else must use TLS.
+const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '::1', '[::1]'];
+
+function isChannelType(value) {
+  return value === 'webhook' || value === 'slack';
+}
+
+function isNotificationEvent(value) {
+  return NOTIFICATION_EVENTS.indexOf(value) !== -1;
+}
+
+function channelTypeLabel(type) {
+  if (type === 'webhook') return 'Webhook';
+  if (type === 'slack') return 'Slack';
+  return 'Unknown';
+}
+
+function eventLabel(event) {
+  return isNotificationEvent(event) ? EVENT_LABELS[event] : String(event === null ? '' : event);
+}
+
+function eventsLabel(events) {
+  if (!Array.isArray(events) || events.length === 0) return '—';
+  return events.map((event) => eventLabel(event)).join(', ');
+}
+
+/**
+ * The dashboard's copy of the API's URL rule: https, or http only for a
+ * loopback host. Assembled from URL.protocol rather than string prefixes so
+ * this file's source text still contains no literal external URL.
+ */
+function isValidChannelUrl(value) {
+  if (typeof value !== 'string' || value.trim() === '') return false;
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol === 'https:') return true;
+  if (parsed.protocol === 'http:') return LOOPBACK_HOSTS.indexOf(parsed.hostname) !== -1;
+  return false;
+}
+
+function formatChannelRow(channel) {
+  const source = channel && typeof channel === 'object' ? channel : {};
+  const enabled = source.enabled !== false;
+  return {
+    id: typeof source.id === 'string' ? source.id : '',
+    type: isChannelType(source.type) ? source.type : '',
+    typeLabel: channelTypeLabel(source.type),
+    url: typeof source.url === 'string' && source.url !== '' ? source.url : '—',
+    events: eventsLabel(source.events),
+    enabled,
+    status: enabled ? 'Enabled' : 'Disabled',
+    hasSecret: source.hasSecret === true,
+    createdAt: typeof source.createdAt === 'string' ? source.createdAt : '',
+    lastError: typeof source.lastError === 'string' ? source.lastError : '',
+  };
+}
+
 // Schedule interval formatting — mirror of apps/web/src/schedule.ts.
 function formatInterval(ms) {
   if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return '—';
@@ -579,6 +650,12 @@ const api = {
   updateUser: (id, body) => sendJson(`/api/users/${encodeURIComponent(id)}`, 'PATCH', body),
   deleteUser: (id) => sendJson(`/api/users/${encodeURIComponent(id)}`, 'DELETE'),
   rotateUserToken: (id) => sendJson(`/api/users/${encodeURIComponent(id)}/rotate`, 'POST', {}),
+  channels: () => getJson('/api/notifications'),
+  createChannel: (body) => sendJson('/api/notifications', 'POST', body),
+  updateChannel: (id, body) =>
+    sendJson(`/api/notifications/${encodeURIComponent(id)}`, 'PATCH', body),
+  deleteChannel: (id) => sendJson(`/api/notifications/${encodeURIComponent(id)}`, 'DELETE'),
+  testChannel: (id) => sendJson(`/api/notifications/${encodeURIComponent(id)}/test`, 'POST', {}),
 };
 
 // ---------------------------------------------------------------------------
@@ -627,10 +704,12 @@ function refreshIdentity() {
   return loadIdentity().then(updateRoleChrome);
 }
 
-/** Show or hide role-dependent chrome (currently just the Users nav item). */
+/** Show or hide role-dependent chrome (the admin-only nav items). */
 function updateRoleChrome() {
   const usersNav = document.getElementById('nav-users');
   if (usersNav) usersNav.hidden = !can(currentRole(), 'manageUsers');
+  const notificationsNav = document.getElementById('nav-notifications');
+  if (notificationsNav) notificationsNav.hidden = !can(currentRole(), 'manageNotifications');
   updateConnectionIndicator();
 }
 
@@ -2217,6 +2296,287 @@ function buildUsersTable(users, revealHolder, refreshList) {
   return el('div', { class: 'table-scroll' }, table);
 }
 
+// ---------------------------------------------------------------------------
+// Notifications (admin only)
+// ---------------------------------------------------------------------------
+
+const CHANNEL_TYPE_OPTIONS = [
+  { value: 'webhook', label: 'Webhook — JSON payload, optionally signed' },
+  { value: 'slack', label: 'Slack — incoming webhook, severity summary' },
+];
+
+/**
+ * The create form. Mirrors the API's validation (type, URL scheme, at least one
+ * event) so an obviously invalid channel never costs a round-trip — the server
+ * still checks all of it and 400s independently.
+ */
+function buildChannelForm(onCreated) {
+  const typeSelect = el('select', { id: 'new-channel-type' });
+  for (const option of CHANNEL_TYPE_OPTIONS) {
+    typeSelect.appendChild(el('option', { value: option.value }, option.label));
+  }
+
+  const urlInput = el('input', {
+    id: 'new-channel-url',
+    type: 'text',
+    placeholder: 'Delivery endpoint (TLS required except on localhost)',
+    autocomplete: 'off',
+  });
+
+  const secretInput = el('input', {
+    id: 'new-channel-secret',
+    type: 'password',
+    placeholder: 'Optional',
+    autocomplete: 'new-password',
+  });
+
+  const eventBoxes = NOTIFICATION_EVENTS.map((event) => {
+    const box = el('input', { type: 'checkbox', id: `new-channel-event-${event}`, value: event });
+    if (event === 'scan.completed') box.checked = true;
+    return { event, box };
+  });
+
+  const eventsField = el('div', { class: 'field' }, [
+    el('span', { class: 'field__label', text: 'Events' }),
+    el(
+      'div',
+      { class: 'checkbox-row' },
+      eventBoxes.map(({ event, box }) =>
+        el('label', { class: 'checkbox-row__item', for: `new-channel-event-${event}` }, [
+          box,
+          el('span', { text: eventLabel(event) }),
+        ]),
+      ),
+    ),
+  ]);
+
+  const status = el('p', { class: 'form-status', role: 'status' });
+  const submit = el('button', { type: 'submit', class: 'btn btn--primary' }, 'Add Channel');
+
+  const form = el('form', { class: 'filters', onsubmit: (event) => event.preventDefault() }, [
+    el('div', { class: 'field' }, [
+      el('label', { for: 'new-channel-type', text: 'Type' }),
+      typeSelect,
+    ]),
+    el('div', { class: 'field' }, [el('label', { for: 'new-channel-url', text: 'URL' }), urlInput]),
+    eventsField,
+    el('div', { class: 'field' }, [
+      el('label', { for: 'new-channel-secret', text: 'Signing secret' }),
+      secretInput,
+      el('p', {
+        class: 'field__hint',
+        text:
+          'Webhook only. Stored so the server can sign each delivery, and never shown again — ' +
+          'the API never returns it. Replace it here if it is lost.',
+      }),
+    ]),
+    submit,
+    status,
+  ]);
+
+  form.addEventListener('submit', async () => {
+    const url = urlInput.value.trim();
+    if (!isValidChannelUrl(url)) {
+      status.textContent =
+        'Enter an absolute URL. TLS is required except for localhost or 127.0.0.1.';
+      return;
+    }
+    const events = eventBoxes.filter(({ box }) => box.checked).map(({ event }) => event);
+    if (events.length === 0) {
+      status.textContent = 'Select at least one event.';
+      return;
+    }
+    const body = { type: typeSelect.value, url, events };
+    const secret = secretInput.value;
+    if (secret) body.secret = secret;
+
+    submit.disabled = true;
+    status.textContent = 'Adding channel…';
+    try {
+      await api.createChannel(body);
+    } catch (error) {
+      submit.disabled = false;
+      status.textContent = `Could not add channel: ${error && error.message ? error.message : error}`;
+      return;
+    }
+    submit.disabled = false;
+    urlInput.value = '';
+    // Clear the secret from the DOM as soon as it has been sent.
+    secretInput.value = '';
+    status.textContent = 'Channel added.';
+    onCreated();
+  });
+
+  return form;
+}
+
+async function renderNotificationsPage(view) {
+  const generation = renderGeneration;
+  clearNode(view);
+  view.appendChild(el('div', { class: 'page-header' }, el('h1', { text: 'Notifications' })));
+
+  if (!can(currentRole(), 'manageNotifications')) {
+    view.appendChild(renderRoleNotice('Managing notifications requires the Admin role.'));
+    return;
+  }
+
+  view.appendChild(
+    el('p', {
+      class: 'page-intro',
+      text:
+        'Outbound notifications on scan lifecycle events. With no channels configured the ' +
+        'server makes no outbound requests at all. A failed delivery is recorded here and ' +
+        'never affects a scan.',
+    }),
+  );
+
+  const listHolder = el('div', {});
+
+  async function refreshList() {
+    clearNode(listHolder);
+    listHolder.appendChild(
+      el('p', { class: 'loading', role: 'status', text: 'Loading channels…' }),
+    );
+    let channels;
+    try {
+      channels = asList(await api.channels(), 'channels');
+    } catch (error) {
+      if (generation !== renderGeneration) return;
+      clearNode(listHolder);
+      listHolder.appendChild(renderErrorPanel(error, refreshList));
+      return;
+    }
+    if (generation !== renderGeneration) return;
+
+    clearNode(listHolder);
+    if (channels.length === 0) {
+      listHolder.appendChild(
+        renderEmptyState(
+          'No notification channels configured.',
+          'Nothing is sent anywhere until one is added.',
+        ),
+      );
+      return;
+    }
+    listHolder.appendChild(buildChannelsTable(channels, refreshList));
+  }
+
+  view.appendChild(buildChannelForm(refreshList));
+  view.appendChild(listHolder);
+  await refreshList();
+}
+
+function buildChannelsTable(channels, refreshList) {
+  const headRow = el('tr', {}, [
+    el('th', { scope: 'col' }, 'Type'),
+    el('th', { scope: 'col' }, 'URL'),
+    el('th', { scope: 'col' }, 'Events'),
+    el('th', { scope: 'col' }, 'Signed'),
+    el('th', { scope: 'col' }, 'Status'),
+    el('th', { scope: 'col' }, 'Last delivery'),
+    el('th', { scope: 'col' }, 'Actions'),
+  ]);
+
+  const tbody = el('tbody');
+  for (const channel of channels) {
+    const row = formatChannelRow(channel);
+
+    // Test results land in their own cell rather than a toast, so an admin can
+    // compare several channels at once.
+    const resultCell = el('td', {});
+    const showResult = (text, ok) => {
+      clearNode(resultCell);
+      resultCell.appendChild(
+        el('span', { class: `badge ${ok ? 'status-completed' : 'status-failed'}`, text }),
+      );
+    };
+    if (row.lastError) showResult(row.lastError, false);
+    else resultCell.appendChild(el('span', { class: 'mono-cell', text: '—' }));
+
+    const testBtn = el(
+      'button',
+      { type: 'button', class: 'btn btn--secondary btn--small' },
+      'Test',
+    );
+    testBtn.addEventListener('click', async () => {
+      testBtn.disabled = true;
+      clearNode(resultCell);
+      resultCell.appendChild(el('span', { class: 'mono-cell', text: 'Testing…' }));
+      try {
+        const result = await api.testChannel(row.id);
+        const ok = Boolean(result && result.ok);
+        const detail = result && result.error ? result.error : `Delivered (${result.status})`;
+        showResult(ok ? detail : String(detail), ok);
+      } catch (error) {
+        showResult(error && error.message ? error.message : String(error), false);
+      }
+      testBtn.disabled = false;
+    });
+
+    const toggleBtn = el(
+      'button',
+      { type: 'button', class: 'btn btn--secondary btn--small' },
+      row.enabled ? 'Disable' : 'Enable',
+    );
+    toggleBtn.addEventListener('click', async () => {
+      toggleBtn.disabled = true;
+      try {
+        await api.updateChannel(row.id, { enabled: !row.enabled });
+        await refreshList();
+      } catch (error) {
+        toggleBtn.disabled = false;
+        toggleBtn.title = error && error.message ? error.message : String(error);
+      }
+    });
+
+    const deleteBtn = el(
+      'button',
+      { type: 'button', class: 'btn btn--secondary btn--small btn--danger' },
+      'Delete',
+    );
+    deleteBtn.addEventListener('click', async () => {
+      if (!window.confirm(`Delete this ${row.typeLabel} channel? Deliveries to it stop at once.`)) {
+        return;
+      }
+      deleteBtn.disabled = true;
+      try {
+        await api.deleteChannel(row.id);
+        await refreshList();
+      } catch (error) {
+        deleteBtn.disabled = false;
+        deleteBtn.title = error && error.message ? error.message : String(error);
+      }
+    });
+
+    tbody.appendChild(
+      el('tr', {}, [
+        el('td', {}, el('span', { class: 'badge role-badge', text: row.typeLabel })),
+        el('td', { class: 'mono-cell', text: row.url }),
+        el('td', { text: row.events }),
+        el('td', { text: row.hasSecret ? 'Yes' : 'No' }),
+        el(
+          'td',
+          {},
+          el(
+            'span',
+            { class: `badge ${row.enabled ? 'status-completed' : 'status-unknown'}` },
+            row.status,
+          ),
+        ),
+        resultCell,
+        el(
+          'td',
+          {},
+          el('div', { class: 'row-actions' }, row.id ? [testBtn, toggleBtn, deleteBtn] : []),
+        ),
+      ]),
+    );
+  }
+
+  const table = el('table', { class: 'data-table' }, [el('thead', {}, headRow), tbody]);
+  return el('div', { class: 'table-scroll' }, table);
+}
+
 function renderSettingsPage(view) {
   view.appendChild(el('div', { class: 'page-header' }, el('h1', { text: 'Settings' })));
 
@@ -2380,6 +2740,9 @@ async function render() {
       break;
     case 'users':
       await renderUsersPage(view);
+      break;
+    case 'notifications':
+      await renderNotificationsPage(view);
       break;
     case 'settings':
       renderSettingsPage(view);

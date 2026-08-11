@@ -15,6 +15,14 @@ import {
   sendNoContent,
   sendText,
 } from './http.js';
+import {
+  checkChannelSecret,
+  checkChannelUrl,
+  isChannelType,
+  normalizeEvents,
+  toPublicChannel,
+} from './notifications.js';
+import type { Notifier } from './notifier.js';
 import { isUserRole, MAX_USER_NAME_LENGTH, requiredRoleFor, roleAtLeast } from './permissions.js';
 import type { ScanQueue } from './queue.js';
 import { resolveScanTarget } from './scan-path.js';
@@ -22,7 +30,10 @@ import type { ReportStore } from './store.js';
 import type {
   ApiRule,
   AuthContext,
+  ChannelType,
   HistoryEntry,
+  NotificationChannel,
+  NotificationEvent,
   PublicUser,
   ScanRecord,
   ScheduleRecord,
@@ -40,6 +51,8 @@ export interface HandlerContext {
   runtime: SentinelRuntime;
   store: ReportStore;
   queue: ScanQueue;
+  /** Outbound notification delivery; used by the channel test endpoint. */
+  notifier: Notifier;
   logger: ServerLogger;
   /** The authenticated caller, resolved by the server before routing. */
   auth: AuthContext;
@@ -434,6 +447,122 @@ function getMe(ctx: HandlerContext): void {
   sendJson(ctx.res, 200, { name: ctx.auth.name, role: ctx.auth.role });
 }
 
+// ---------------------------------------------------------------------------
+// Notification channels (admin only)
+// ---------------------------------------------------------------------------
+
+/** Reject a bad channel field with the shared 400 envelope. */
+function rejectIf(reason: string | undefined): void {
+  if (reason !== undefined) throw new HttpError(400, 'validation_error', reason);
+}
+
+function validateChannelType(value: unknown): ChannelType {
+  if (!isChannelType(value)) {
+    throw new HttpError(400, 'validation_error', '"type" is required and must be webhook or slack');
+  }
+  return value;
+}
+
+function validateChannelEvents(value: unknown): NotificationEvent[] {
+  const normalized = normalizeEvents(value);
+  if (typeof normalized === 'string') {
+    throw new HttpError(400, 'validation_error', normalized);
+  }
+  return normalized;
+}
+
+/** Look a channel up by id, or 404. */
+function requireChannel(ctx: HandlerContext, id: string): NotificationChannel {
+  const channel = ctx.store.getChannel(id);
+  if (channel === undefined) throw notFound('Notification channel not found');
+  return channel;
+}
+
+/**
+ * Create a channel. The `secret` is accepted here and never echoed: unlike a
+ * user token it must be *kept* (it signs webhook bodies), but it is stored only,
+ * and every response — this one included — goes through `toPublicChannel`.
+ */
+async function createChannel(ctx: HandlerContext): Promise<void> {
+  const record = requireJsonObject(await readJsonBody(ctx.req, ctx.runtime.maxBodyBytes));
+  const type = validateChannelType(record['type']);
+  rejectIf(checkChannelUrl(record['url']));
+  const events = validateChannelEvents(record['events']);
+  if (record['secret'] !== undefined) rejectIf(checkChannelSecret(record['secret']));
+  if (record['enabled'] !== undefined && typeof record['enabled'] !== 'boolean') {
+    throw new HttpError(400, 'validation_error', '"enabled" must be a boolean');
+  }
+
+  const created = ctx.store.createChannel({
+    type,
+    url: record['url'] as string,
+    events,
+    ...(typeof record['enabled'] === 'boolean' ? { enabled: record['enabled'] } : {}),
+    ...(record['secret'] === undefined ? {} : { secret: record['secret'] as string }),
+  });
+  sendJson(ctx.res, 201, toPublicChannel(created));
+}
+
+function listChannels(ctx: HandlerContext): void {
+  sendJson(ctx.res, 200, ctx.store.listChannels().map(toPublicChannel));
+}
+
+function getChannelById(ctx: HandlerContext, id: string): void {
+  sendJson(ctx.res, 200, toPublicChannel(requireChannel(ctx, id)));
+}
+
+/**
+ * Update a channel. A supplied `secret` replaces the stored one; `null` removes
+ * it (so signing can be turned off without deleting the channel). Omitting the
+ * field leaves the existing secret untouched — the API cannot show it back, so
+ * a round-trip of a GET response must not silently erase it.
+ */
+async function patchChannel(ctx: HandlerContext, id: string): Promise<void> {
+  const existing = requireChannel(ctx, id);
+  const patch = requireJsonObject(await readJsonBody(ctx.req, ctx.runtime.maxBodyBytes));
+
+  const updated: NotificationChannel = { ...existing };
+  if (patch['enabled'] !== undefined) {
+    if (typeof patch['enabled'] !== 'boolean') {
+      throw new HttpError(400, 'validation_error', '"enabled" must be a boolean');
+    }
+    updated.enabled = patch['enabled'];
+  }
+  if (patch['url'] !== undefined) {
+    rejectIf(checkChannelUrl(patch['url']));
+    updated.url = patch['url'] as string;
+  }
+  if (patch['events'] !== undefined) {
+    updated.events = validateChannelEvents(patch['events']);
+  }
+  if (patch['secret'] !== undefined) {
+    if (patch['secret'] === null) delete updated.secret;
+    else {
+      rejectIf(checkChannelSecret(patch['secret']));
+      updated.secret = patch['secret'] as string;
+    }
+  }
+  ctx.store.updateChannel(updated);
+  sendJson(ctx.res, 200, toPublicChannel(updated));
+}
+
+function deleteChannelById(ctx: HandlerContext, id: string): void {
+  if (!ctx.store.deleteChannel(id)) throw notFound('Notification channel not found');
+  sendNoContent(ctx.res);
+}
+
+/**
+ * Send a `test` event through the real delivery path — same serialization, same
+ * signature, same injected fetch and 5 s deadline — and report what happened.
+ * This is the admin's connectivity check, so a failure here is a `200` carrying
+ * `{ ok: false }`, not an HTTP error: the request itself succeeded, it is the
+ * receiver that did not answer.
+ */
+async function testChannel(ctx: HandlerContext, id: string): Promise<void> {
+  const result = await ctx.notifier.sendTest(requireChannel(ctx, id));
+  sendJson(ctx.res, 200, result);
+}
+
 function getHistory(ctx: HandlerContext): void {
   const target = ctx.url.searchParams.get('target') ?? undefined;
   const limit = parseLimit(ctx.url.searchParams.get('limit'));
@@ -523,6 +652,21 @@ export async function routeApi(ctx: HandlerContext): Promise<void> {
     if (method === 'PATCH') return patchSchedule(ctx, second);
     if (method === 'DELETE') return deleteScheduleById(ctx, second);
     throw methodNotAllowed('GET, PATCH, DELETE');
+  }
+  if (rest.length === 1 && first === 'notifications') {
+    if (method === 'GET') return listChannels(ctx);
+    if (method === 'POST') return createChannel(ctx);
+    throw methodNotAllowed('GET, POST');
+  }
+  if (rest.length === 2 && first === 'notifications' && second !== undefined) {
+    if (method === 'GET') return getChannelById(ctx, second);
+    if (method === 'PATCH') return patchChannel(ctx, second);
+    if (method === 'DELETE') return deleteChannelById(ctx, second);
+    throw methodNotAllowed('GET, PATCH, DELETE');
+  }
+  if (rest.length === 3 && first === 'notifications' && second !== undefined && third === 'test') {
+    if (method !== 'POST') throw methodNotAllowed('POST');
+    return testChannel(ctx, second);
   }
   if (rest.length === 1 && first === 'history') {
     if (method !== 'GET') throw methodNotAllowed('GET');

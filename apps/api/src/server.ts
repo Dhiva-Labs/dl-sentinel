@@ -5,6 +5,7 @@ import { createDefaultEngine } from '@dl-sentinel/preset';
 import { extractBearer, resolveAuth, tokenId } from './auth.js';
 import { resolveRuntime, stderrLogger } from './config.js';
 import { HttpError, methodNotAllowed, sendError, sendJson } from './http.js';
+import { Notifier } from './notifier.js';
 import { ScanQueue } from './queue.js';
 import { RateLimiter } from './rate-limit.js';
 import { routeApi } from './router.js';
@@ -12,12 +13,19 @@ import { Scheduler } from './scheduler.js';
 import { createStaticServer } from './static.js';
 import type { StaticServer } from './static.js';
 import { ReportStore } from './store.js';
-import type { SentinelApiServer, SentinelRuntime, ServerLogger, ServerOptions } from './types.js';
+import type {
+  FetchLike,
+  SentinelApiServer,
+  SentinelRuntime,
+  ServerLogger,
+  ServerOptions,
+} from './types.js';
 
 interface RequestDeps {
   runtime: SentinelRuntime;
   store: ReportStore;
   queue: ScanQueue;
+  notifier: Notifier;
   limiter: RateLimiter;
   staticServer: StaticServer;
   logger: ServerLogger;
@@ -36,7 +44,7 @@ async function handleRequest(
   res: ServerResponse,
   deps: RequestDeps,
 ): Promise<void> {
-  const { runtime, store, queue, limiter, staticServer, logger, now } = deps;
+  const { runtime, store, queue, notifier, limiter, staticServer, logger, now } = deps;
   const method = req.method ?? 'GET';
   const url = new URL(req.url ?? '/', 'http://localhost');
   const pathname = url.pathname;
@@ -93,7 +101,7 @@ async function handleRequest(
         });
       }
 
-      await routeApi({ req, res, url, runtime, store, queue, logger, auth, now });
+      await routeApi({ req, res, url, runtime, store, queue, notifier, logger, auth, now });
       return;
     }
 
@@ -109,8 +117,9 @@ async function handleRequest(
  * `http.Server` augmented with a `sentinel` property carrying the fully resolved
  * runtime (token, scan root, data dir, limits, concurrency), a `queue` property
  * exposing background-worker controls (`waitForJob`, `drain`, `stop`), and a
- * `scheduler` property exposing scheduling controls (`tick`, `start`, `stop`)
- * for tests and graceful shutdown.
+ * `scheduler` property exposing scheduling controls (`tick`, `start`, `stop`),
+ * and a `notifier` property exposing delivery controls (`drain`, `stop`) for
+ * tests and graceful shutdown.
  *
  * Existing scan records are loaded synchronously during construction, then
  * reconciled: any record left `running` by a previous process is marked `failed`
@@ -138,6 +147,17 @@ export function createServer(options: ServerOptions = {}): SentinelApiServer {
   const staticServer = createStaticServer(logger, options.webRoot);
   const scheduler = new Scheduler(store, queue, logger, runtime.schedulerIntervalMs, now);
 
+  // Outbound notifications. `fetch` is injected (tests never touch the network),
+  // and with no channels configured the notifier never calls it at all.
+  const fetchImpl: FetchLike =
+    options.fetch ?? ((input, init) => fetch(input, init as RequestInit));
+  const notifier = new Notifier(store, logger, fetchImpl);
+  // Delivery hangs off the queue's post-terminal-state hook, not off the job
+  // itself: the record is persisted, then notifications are started and the
+  // worker moves on without awaiting them.
+  queue.setOnSettled((record) => notifier.emitForSettledScan(record));
+  scheduler.setNotifier(notifier);
+
   // Recover from an unclean shutdown before accepting traffic: fail interrupted
   // jobs and re-enqueue ones that never started.
   for (const id of store.reconcile(new Date().toISOString())) {
@@ -148,11 +168,21 @@ export function createServer(options: ServerOptions = {}): SentinelApiServer {
   scheduler.start();
 
   const server = httpCreateServer((req, res) => {
-    void handleRequest(req, res, { runtime, store, queue, limiter, staticServer, logger, now });
+    void handleRequest(req, res, {
+      runtime,
+      store,
+      queue,
+      notifier,
+      limiter,
+      staticServer,
+      logger,
+      now,
+    });
   });
   Object.defineProperty(server, 'sentinel', { value: runtime, enumerable: true });
   Object.defineProperty(server, 'queue', { value: queue, enumerable: true });
   Object.defineProperty(server, 'scheduler', { value: scheduler, enumerable: true });
+  Object.defineProperty(server, 'notifier', { value: notifier, enumerable: true });
   // Non-enumerable, off the public type: exposed only so a controlled shutdown
   // (see test support) can await outstanding writes before removing the data dir.
   Object.defineProperty(server, 'store', { value: store, enumerable: false });

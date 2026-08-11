@@ -63,7 +63,29 @@ export interface ServerOptions {
   logger?: ServerLogger;
   /** Engine factory, injectable for tests. Defaults to `createDefaultEngine`. */
   engineFactory?: () => ScanEngine;
+  /**
+   * `fetch` implementation used for outbound notification delivery. Injectable
+   * so tests never touch the network; defaults to the global `fetch`. This is
+   * the only outbound HTTP path the server itself initiates (besides the opt-in
+   * OSV data source inside the dependency scanner).
+   */
+  fetch?: FetchLike;
 }
+
+/**
+ * The subset of the global `fetch` signature the notifier uses. Declared
+ * structurally so a test can pass a plain function without pulling in DOM lib
+ * types, and so nothing in this package depends on a real network stack.
+ */
+export type FetchLike = (
+  input: string,
+  init?: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string;
+    signal?: AbortSignal;
+  },
+) => Promise<{ ok: boolean; status: number }>;
 
 /** Fully resolved runtime configuration, exposed on the server for tests. */
 export interface SentinelRuntime {
@@ -124,13 +146,30 @@ export interface SchedulerControls {
 }
 
 /**
+ * Control surface for outbound notification delivery, exposed on the server for
+ * tests and graceful shutdown. Deliveries are deliberately started off the
+ * queue's critical path (a job reaches its terminal state, is persisted, and
+ * *then* notifications go out), so `drain()` is the only way to observe
+ * quiescence — it mirrors {@link ScanQueueControls.drain} and is awaited during
+ * a controlled shutdown so no delivery outlives the process that started it.
+ */
+export interface NotifierControls {
+  /** Resolve once every in-flight delivery has settled (success or failure). */
+  drain(): Promise<void>;
+  /** Start no further deliveries and resolve once in-flight ones have settled. */
+  stop(): Promise<void>;
+}
+
+/**
  * A Node HTTP server augmented with its resolved runtime configuration, the
- * background scan-queue controls, and the scheduler controls.
+ * background scan-queue controls, the scheduler controls, and the notifier
+ * controls.
  */
 export type SentinelApiServer = Server & {
   readonly sentinel: SentinelRuntime;
   readonly queue: ScanQueueControls;
   readonly scheduler: SchedulerControls;
+  readonly notifier: NotifierControls;
 };
 
 /** Lifecycle status of a scan job. */
@@ -162,6 +201,12 @@ export interface ScanRecord {
   report?: Report;
   /** A client-safe failure message; present iff `status === 'failed'`. */
   error?: string;
+  /**
+   * Id of the {@link ScheduleRecord} that enqueued this job, absent for an
+   * ad-hoc scan. Carried so a scheduled scan that ends `failed` can raise
+   * `schedule.failed` (with the schedule's id) alongside `scan.failed`.
+   */
+  scheduleId?: string;
 }
 
 /** Compact scan listing entry (`GET /api/scans`). */
@@ -291,6 +336,96 @@ export interface AuthContext {
   /** `root` for the bootstrap token, else the user's name. */
   name: string;
   role: UserRole;
+}
+
+// ---------------------------------------------------------------------------
+// Notifications (docs/architecture.md §API server, "Notifications")
+// ---------------------------------------------------------------------------
+
+/** Where a notification is delivered. */
+export type ChannelType = 'webhook' | 'slack';
+
+/** The scan-lifecycle events a channel may subscribe to. */
+export type NotificationEvent =
+  'scan.completed' | 'scan.failed' | 'policy.violated' | 'schedule.failed';
+
+/**
+ * A configured outbound notification channel, persisted under
+ * `<dataDir>/notifications/<id>.json`. Admin-only to create, read, or change.
+ *
+ * The `secret` is the one credential in the system the server must *keep*
+ * rather than hash: it signs each webhook body so the receiver can verify it
+ * (`X-Sentinel-Signature`), which is impossible from a digest. It is therefore
+ * held in this record but never served — {@link PublicChannel} is what every
+ * response carries — and never written to a log or the audit trail.
+ */
+export interface NotificationChannel {
+  id: string;
+  type: ChannelType;
+  /** Delivery endpoint: https, or http only for a loopback host. */
+  url: string;
+  /** Non-empty subset of the four lifecycle events. */
+  events: NotificationEvent[];
+  enabled: boolean;
+  /** HMAC signing key for webhook deliveries. Never returned by the API. */
+  secret?: string;
+  /** ISO timestamp the channel was created. */
+  createdAt: string;
+  /**
+   * Sanitized description of the most recent failed delivery (a status code or
+   * a short message — never a response body, URL credential, or secret). Cleared
+   * on the next successful delivery.
+   */
+  lastError?: string;
+}
+
+/**
+ * A channel as served by `/api/notifications*`: the record with its `secret`
+ * replaced by a boolean. Built field by field (never by spreading a
+ * {@link NotificationChannel}) so a secret can never leak into a response
+ * through a later field addition — the same discipline `toPublicUser` applies
+ * to token hashes.
+ */
+export interface PublicChannel {
+  id: string;
+  type: ChannelType;
+  url: string;
+  events: NotificationEvent[];
+  enabled: boolean;
+  /** Whether a signing secret is configured. The value itself is never served. */
+  hasSecret: boolean;
+  createdAt: string;
+  lastError?: string;
+}
+
+/**
+ * The JSON body POSTed to a `webhook` channel, and the value signed by
+ * `X-Sentinel-Signature`. Field-for-field the shape fixed in
+ * docs/architecture.md; `scheduleId` is present only on `schedule.failed`.
+ *
+ * It carries counts and identifiers only: no finding evidence, no file
+ * contents, and nothing that was not already derivable from the scan record.
+ */
+export interface NotificationPayload {
+  /** The lifecycle event, or `test` for a connectivity check. */
+  event: NotificationEvent | 'test';
+  scanId: string;
+  path: string;
+  project: string;
+  stats: SeverityStats;
+  findingCount: number;
+  finishedAt: string;
+  /** Present only for `schedule.failed`. */
+  scheduleId?: string;
+}
+
+/** Outcome of one delivery attempt, as returned by `POST /api/notifications/:id/test`. */
+export interface DeliveryResult {
+  ok: boolean;
+  /** HTTP status, when a response was received at all. */
+  status?: number;
+  /** Sanitized failure description; absent when `ok`. */
+  error?: string;
 }
 
 /** One line of the JSONL audit log. Never contains a token or secret in full. */

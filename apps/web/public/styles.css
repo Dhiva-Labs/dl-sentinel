@@ -478,6 +478,34 @@ main#view {
   gap: 0.5rem;
 }
 
+/* Stands in for a <label> where a group of controls, not one, is being named
+   (the Notifications event checkboxes): `for` can only point at a single
+   control, so the group heading is a span styled to match a field label. */
+.field__label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.checkbox-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.9rem;
+  align-items: center;
+}
+
+/* Outweighs `.field label` above, which would otherwise make each checkbox
+   caption read as a field heading rather than an option. */
+.field .checkbox-row__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: var(--text);
+  cursor: pointer;
+}
+
 input[type='text'],
 input[type='password'],
 input[type='search'],

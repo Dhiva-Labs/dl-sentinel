@@ -21,9 +21,19 @@ describe('can', () => {
   // a change to either side shows up as a failing cell rather than a silent
   // divergence.
   const matrix: Record<Role, Record<GatedAction, boolean>> = {
-    viewer: { startScan: false, manageSchedules: false, manageUsers: false },
-    operator: { startScan: true, manageSchedules: false, manageUsers: false },
-    admin: { startScan: true, manageSchedules: true, manageUsers: true },
+    viewer: {
+      startScan: false,
+      manageSchedules: false,
+      manageUsers: false,
+      manageNotifications: false,
+    },
+    operator: {
+      startScan: true,
+      manageSchedules: false,
+      manageUsers: false,
+      manageNotifications: false,
+    },
+    admin: { startScan: true, manageSchedules: true, manageUsers: true, manageNotifications: true },
   };
 
   for (const role of Object.keys(matrix) as Role[]) {
@@ -39,6 +49,7 @@ describe('can', () => {
       expect(can(value, 'startScan')).toBe(false);
       expect(can(value, 'manageSchedules')).toBe(false);
       expect(can(value, 'manageUsers')).toBe(false);
+      expect(can(value, 'manageNotifications')).toBe(false);
     }
   });
 });
