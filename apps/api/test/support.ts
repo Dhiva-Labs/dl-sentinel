@@ -71,35 +71,47 @@ export async function startTestServer(overrides: ServerOptions = {}): Promise<Te
     base: `http://127.0.0.1:${address.port}`,
     token: server.sentinel.token,
     dataDir,
-    async cleanup() {
-      // Deterministic teardown: nothing must write to the data dir after this
-      // point, or rmSync races the worker (intermittent ENOTEMPTY in the full
-      // suite). Order matters:
-      //   1. Stop the scheduler so it can't enqueue (and persist) new scans.
-      //   2. Close the server so no new request can enqueue work or start an
-      //      audit append.
-      //   3. Drain the queue so every queued/in-flight job finishes its writes,
-      //      then stop the pool.
-      //   4. Stop the notifier, so deliveries started by those jobs settle
-      //      before anything else — a delivery writes `lastError` back to a
-      //      channel file, and it runs off the job's critical path, so queue
-      //      drain alone does not imply it is finished.
-      //   5. Flush outstanding async writes (audit-log appends).
-      // Only then is it safe to remove the directory.
-      server.scheduler.stop();
-      await new Promise<void>((resolve, reject) => {
-        server.close((err) => (err ? reject(err) : resolve()));
-        // Force idle keep-alive sockets closed so close() settles promptly.
-        const withClose = server as unknown as { closeAllConnections?: () => void };
-        withClose.closeAllConnections?.();
-      });
-      await server.queue.drain();
-      await server.queue.stop();
-      await server.notifier.stop();
-      await (server as unknown as { store: { flushWrites(): Promise<void> } }).store.flushWrites();
-      if (ownsDataDir) rmSync(dataDir, { recursive: true, force: true });
-    },
+    cleanup: () => shutdownTestServer(server, dataDir, ownsDataDir),
   };
+}
+
+/**
+ * Deterministic teardown: nothing must write to the data dir after this point,
+ * or rmSync races the worker (intermittent ENOTEMPTY in the full suite). Order
+ * matters:
+ *   1. Stop the scheduler so it can't enqueue (and persist) new scans.
+ *   2. Close the server so no new request can enqueue work or start an audit
+ *      append.
+ *   3. Drain the queue so every queued/in-flight job finishes its writes, then
+ *      stop the pool.
+ *   4. Stop the notifier, so deliveries started by those jobs settle before
+ *      anything else — a delivery writes `lastError` back to a channel file, and
+ *      it runs off the job's critical path, so queue drain alone does not imply
+ *      it is finished.
+ *   5. Flush outstanding async writes (audit-log appends).
+ * Only then is it safe to remove the directory.
+ *
+ * Exported so a test that builds its server another way — notably through
+ * `startServer`, to exercise environment-driven startup — tears it down exactly
+ * as {@link startTestServer} does.
+ */
+export async function shutdownTestServer(
+  server: SentinelApiServer,
+  dataDir: string,
+  removeDataDir: boolean,
+): Promise<void> {
+  server.scheduler.stop();
+  await new Promise<void>((resolve, reject) => {
+    server.close((err) => (err ? reject(err) : resolve()));
+    // Force idle keep-alive sockets closed so close() settles promptly.
+    const withClose = server as unknown as { closeAllConnections?: () => void };
+    withClose.closeAllConnections?.();
+  });
+  await server.queue.drain();
+  await server.queue.stop();
+  await server.notifier.stop();
+  await (server as unknown as { store: { flushWrites(): Promise<void> } }).store.flushWrites();
+  if (removeDataDir) rmSync(dataDir, { recursive: true, force: true });
 }
 
 /**

@@ -2,16 +2,30 @@
 /**
  * Bin entry for the DL Sentinel API server. Binds the configured port and
  * starts serving. Configuration comes entirely from the environment
- * (SENTINEL_API_TOKEN, SENTINEL_SCAN_ROOT, SENTINEL_DATA_DIR, PORT, rate-limit
- * and body-size vars); see docs/architecture.md and docs/api.md.
+ * (SENTINEL_API_TOKEN, SENTINEL_SCAN_ROOT, SENTINEL_DATA_DIR, SENTINEL_PLUGINS,
+ * PORT, rate-limit and body-size vars); see docs/architecture.md and
+ * docs/api.md.
+ *
+ * Startup is fatal on a configuration error — most importantly a
+ * `SENTINEL_PLUGINS` spec that cannot be loaded. Running with fewer scanners
+ * than the operator configured would mean reporting a clean result for checks
+ * that never ran, so the process refuses to start (exit 1) instead.
  *
  * Graceful shutdown: on SIGINT/SIGTERM the scheduler stops enqueuing, the
  * server stops accepting connections, in-flight scan jobs and notification
  * deliveries drain, then the process exits 0. A second signal forces exit 130.
  */
+import type { SentinelApiServer } from './types.js';
 import { startServer } from './server.js';
 
-const server = startServer();
+let server: SentinelApiServer;
+try {
+  server = await startServer();
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  process.stderr.write(`[dl-sentinel:api] fatal: ${message}\n`);
+  process.exit(1);
+}
 
 let shuttingDown = false;
 async function shutdown(signal: string): Promise<void> {

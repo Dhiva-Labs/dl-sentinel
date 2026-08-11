@@ -1,7 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { Finding, ReportFormat, Severity } from '@dl-sentinel/core';
+import type { Finding, ReportFormat, ScannerPlugin, Severity } from '@dl-sentinel/core';
 import { SEVERITY_ORDER } from '@dl-sentinel/core';
-import { BUILTIN_SCANNERS } from '@dl-sentinel/preset';
 import { renderReport } from '@dl-sentinel/reporting';
 import { generateUserToken, hashToken } from './auth.js';
 import {
@@ -49,6 +48,13 @@ export interface HandlerContext {
   res: ServerResponse;
   url: URL;
   runtime: SentinelRuntime;
+  /**
+   * The registered scanner roster: the built-ins followed by any plugins loaded
+   * from `SENTINEL_PLUGINS` / `ServerOptions.plugins`. `/api/rules` lists these,
+   * and `scanners` in request bodies and filters is validated against them, so a
+   * plugin is addressable exactly like a built-in.
+   */
+  scanners: readonly ScannerPlugin[];
   store: ReportStore;
   queue: ScanQueue;
   /** Outbound notification delivery; used by the channel test endpoint. */
@@ -67,8 +73,12 @@ export interface HandlerContext {
 export const MIN_SCHEDULE_INTERVAL_MS = 60_000;
 
 const SEVERITIES = new Set<string>(SEVERITY_ORDER);
-const SCANNER_IDS = new Set<string>(BUILTIN_SCANNERS.map((scanner) => scanner.id));
 const REPORT_FORMATS = new Set<string>(['json', 'markdown', 'sarif']);
+
+/** Ids of every registered scanner, built-in or plugin. */
+function scannerIds(scanners: readonly ScannerPlugin[]): Set<string> {
+  return new Set(scanners.map((scanner) => scanner.id));
+}
 
 function decodeSegment(segment: string): string {
   try {
@@ -78,10 +88,10 @@ function decodeSegment(segment: string): string {
   }
 }
 
-/** All built-in rules, each annotated with its owning scanner id. */
-function buildRules(): ApiRule[] {
+/** Every registered scanner's rules, each annotated with its owning scanner id. */
+function buildRules(scanners: readonly ScannerPlugin[]): ApiRule[] {
   const rules: ApiRule[] = [];
-  for (const scanner of BUILTIN_SCANNERS) {
+  for (const scanner of scanners) {
     for (const rule of scanner.rules) {
       rules.push({ ...rule, scanner: scanner.id });
     }
@@ -90,7 +100,11 @@ function buildRules(): ApiRule[] {
 }
 
 /** Apply optional ?severity= and ?scanner= filters, validating each value. */
-function applyFindingFilters(findings: readonly Finding[], url: URL): Finding[] {
+function applyFindingFilters(
+  findings: readonly Finding[],
+  url: URL,
+  scanners: readonly ScannerPlugin[],
+): Finding[] {
   const severity = url.searchParams.get('severity');
   const scanner = url.searchParams.get('scanner');
   let result = [...findings];
@@ -101,7 +115,7 @@ function applyFindingFilters(findings: readonly Finding[], url: URL): Finding[] 
     result = result.filter((finding) => finding.severity === (severity as Severity));
   }
   if (scanner !== null) {
-    if (!SCANNER_IDS.has(scanner)) {
+    if (!scannerIds(scanners).has(scanner)) {
       throw new HttpError(400, 'validation_error', `Unknown scanner filter: ${scanner}`);
     }
     result = result.filter((finding) => finding.scanner === scanner);
@@ -121,13 +135,17 @@ function parseReportFormat(value: string | null): ReportFormat {
   return value as ReportFormat;
 }
 
-function validateScanners(value: unknown): string[] | undefined {
+function validateScanners(
+  value: unknown,
+  scanners: readonly ScannerPlugin[],
+): string[] | undefined {
   if (value === undefined || value === null) return undefined;
   if (!Array.isArray(value) || !value.every((entry) => typeof entry === 'string')) {
     throw new HttpError(400, 'validation_error', '"scanners" must be an array of scanner ids');
   }
   const ids = value as string[];
-  const unknown = ids.filter((id) => !SCANNER_IDS.has(id));
+  const known = scannerIds(scanners);
+  const unknown = ids.filter((id) => !known.has(id));
   if (unknown.length > 0) {
     throw new HttpError(
       400,
@@ -156,7 +174,7 @@ async function createScan(ctx: HandlerContext): Promise<void> {
   // Path isolation and scanner validation happen up front, before enqueueing, so
   // an invalid request is rejected synchronously with 400 (never a queued job).
   const target = resolveScanTarget(ctx.runtime.scanRoot, record['path']);
-  const scanners = validateScanners(record['scanners']);
+  const scanners = validateScanners(record['scanners'], ctx.scanners);
 
   const created = ctx.store.create(
     scanners === undefined ? { path: target } : { path: target, scanners },
@@ -180,16 +198,16 @@ function getScanFindings(ctx: HandlerContext, id: string): void {
   const scan = ctx.store.get(id);
   if (scan === undefined) throw notFound('Scan not found');
   requireCompleted(scan);
-  sendJson(ctx.res, 200, applyFindingFilters(scan.report.findings, ctx.url));
+  sendJson(ctx.res, 200, applyFindingFilters(scan.report.findings, ctx.url, ctx.scanners));
 }
 
 function getAllFindings(ctx: HandlerContext): void {
   // store.allFindings() already aggregates completed scans only.
-  sendJson(ctx.res, 200, applyFindingFilters(ctx.store.allFindings(), ctx.url));
+  sendJson(ctx.res, 200, applyFindingFilters(ctx.store.allFindings(), ctx.url, ctx.scanners));
 }
 
 function getRules(ctx: HandlerContext): void {
-  sendJson(ctx.res, 200, buildRules());
+  sendJson(ctx.res, 200, buildRules(ctx.scanners));
 }
 
 function getReport(ctx: HandlerContext, id: string): void {
@@ -237,7 +255,7 @@ async function createSchedule(ctx: HandlerContext): Promise<void> {
   const record = body as Record<string, unknown>;
   // Same isolation and scanner checks as an ad-hoc scan, up front.
   const target = resolveScanTarget(ctx.runtime.scanRoot, record['path']);
-  const scanners = validateScanners(record['scanners']);
+  const scanners = validateScanners(record['scanners'], ctx.scanners);
   const intervalMs = validateInterval(record['intervalMs']);
 
   const nextRunAt = new Date(ctx.now() + intervalMs).toISOString();

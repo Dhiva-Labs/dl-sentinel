@@ -1,5 +1,5 @@
 import type { Server } from 'node:http';
-import type { Report, SeverityStats, RuleMeta } from '@dl-sentinel/core';
+import type { Report, ScannerPlugin, SeverityStats, RuleMeta } from '@dl-sentinel/core';
 import type { ScanEngine } from '@dl-sentinel/engine';
 
 /** Minimal logging sink. Defaults to stderr; tests can supply a silent one. */
@@ -59,9 +59,29 @@ export interface ServerOptions {
    * waiting for real timers. Defaults to `Date.now`.
    */
   now?: () => number;
+  /**
+   * Environment the server reads its configuration from. Defaults to
+   * `process.env`. Injectable so a test can exercise the env-driven paths
+   * (notably `SENTINEL_PLUGINS`) without mutating the real environment.
+   */
+  env?: NodeJS.ProcessEnv;
+  /**
+   * Already-constructed scanner plugins to register after the built-ins.
+   *
+   * This is the injection point for embedders and tests: it bypasses
+   * `SENTINEL_PLUGINS` and the dynamic import entirely. {@link startServer} uses
+   * it internally for the plugins it loaded from the environment. Supplying it
+   * suppresses env-based loading, so a caller is never surprised by extra
+   * scanners it did not pass.
+   */
+  plugins?: ScannerPlugin[];
   /** Logging sink. Defaults to a stderr logger. */
   logger?: ServerLogger;
-  /** Engine factory, injectable for tests. Defaults to `createDefaultEngine`. */
+  /**
+   * Engine factory, injectable for tests. Defaults to the built-in scanners plus
+   * {@link ServerOptions.plugins}; a caller that supplies its own factory owns
+   * the whole roster, including any plugins.
+   */
   engineFactory?: () => ScanEngine;
   /**
    * `fetch` implementation used for outbound notification delivery. Injectable
@@ -107,6 +127,11 @@ export interface SentinelRuntime {
   scanConcurrency: number;
   /** Resolved scheduler polling interval in milliseconds (positive integer). */
   schedulerIntervalMs: number;
+  /**
+   * Ids of the external scanner plugins registered alongside the built-ins, in
+   * registration order. Empty on a deployment without plugins.
+   */
+  pluginIds: string[];
 }
 
 /**

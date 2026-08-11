@@ -42,11 +42,26 @@ function canonicalScanRoot(input: string, logger: ServerLogger): string {
 }
 
 /**
+ * Parse `SENTINEL_PLUGINS` into plugin specs: a comma-separated list of file
+ * paths or package names, trimmed, with empties dropped.
+ *
+ * This environment variable is the API server's *only* source of plugins. A
+ * plugin is operator-chosen executable code, so it may never come from a
+ * config file or from anything inside a scanned repository (docs/plugins.md).
+ */
+export function pluginSpecsFromEnv(env: NodeJS.ProcessEnv): string[] {
+  return (env.SENTINEL_PLUGINS ?? '')
+    .split(',')
+    .map((spec) => spec.trim())
+    .filter((spec) => spec.length > 0);
+}
+
+/**
  * Merge options, environment, and defaults into the fully resolved runtime.
  * Precedence: explicit option > environment variable > built-in default.
  */
 export function resolveRuntime(options: ServerOptions, logger: ServerLogger): SentinelRuntime {
-  const env = process.env;
+  const env = options.env ?? process.env;
 
   const configuredToken = options.token ?? env.SENTINEL_API_TOKEN;
   const tokenGenerated = configuredToken === undefined || configuredToken === '';
@@ -78,6 +93,11 @@ export function resolveRuntime(options: ServerOptions, logger: ServerLogger): Se
     options.schedulerIntervalMs ??
     parseIntEnv(env.SENTINEL_SCHEDULER_INTERVAL_MS, DEFAULT_SCHEDULER_INTERVAL_MS);
 
+  // Plugins are already loaded by the time the runtime is resolved: the
+  // environment names specs, `startServer` imports them, and only the resulting
+  // objects reach here (see server.ts).
+  const pluginIds = (options.plugins ?? []).map((plugin) => plugin.id);
+
   return {
     token,
     tokenGenerated,
@@ -88,5 +108,6 @@ export function resolveRuntime(options: ServerOptions, logger: ServerLogger): Se
     port,
     scanConcurrency,
     schedulerIntervalMs,
+    pluginIds,
   };
 }
