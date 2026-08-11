@@ -65,6 +65,7 @@ authored and scanner-verified in CI-less fashion — build the image on a Docker
 | `SENTINEL_SCAN_ROOT` | process cwd | Only paths inside this root may be scanned |
 | `SENTINEL_DATA_DIR` | `.dl-sentinel/` | Reports, schedules, users, audit log |
 | `SENTINEL_SCAN_CONCURRENCY` | `2` | Parallel scan workers |
+| `SENTINEL_PLUGINS` | unset | Comma-separated external scanner plugin specs; a spec that fails to load is fatal at startup (see [Plugins](plugins.md)) |
 | `SENTINEL_RATE_LIMIT_MAX` / `_WINDOW_MS` | `60` / `60000` | API rate limit |
 | `SENTINEL_MAX_BODY_BYTES` | `1048576` | Request body cap |
 
