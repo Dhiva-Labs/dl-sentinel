@@ -186,18 +186,29 @@ no `compliance` field — that is a deliberate omission, not an oversight.
 | `SC008` | smart-contract | CWE-190 | — |
 | `SC010` | smart-contract | CWE-330 | — |
 | `SC011` | smart-contract | CWE-477 | — |
+| `SC013` | smart-contract | CWE-841 | — |
+| `SC014` | smart-contract | CWE-862 | — |
+| `SC015` | smart-contract | CWE-252 | — |
 
-76 of the 83 built-in rules currently carry a mapping. The 7 deliberately unmapped rules —
-`D002`, `D003`, `I003`, `I006`, `I027`, `SC009`, `SC012` — are informational or hygiene
-checks with no single well-established CWE/OWASP id (a dependency scan being skipped or a
-manifest missing a lockfile, an unpinned base/container image, an EXPOSE-only administrative
-port, a floating Solidity pragma, a privileged setter missing an event); each one's rule
-declaration carries no `compliance` field rather than a forced guess.
+79 of the 88 built-in rules currently carry a mapping. The 9 deliberately unmapped rules —
+`D002`, `D003`, `I003`, `I006`, `I027`, `SC009`, `SC012`, `SC016`, `SC017` — are
+informational or hygiene checks with no single well-established CWE/OWASP id (a dependency
+scan being skipped or a manifest missing a lockfile, an unpinned base/container image, an
+EXPOSE-only administrative port, a floating Solidity pragma, a privileged setter missing an
+event, a privileged address setter missing a zero-address check, a `delegatecall` repeated
+inside a loop); each one's rule declaration carries no `compliance` field rather than a
+forced guess.
+
+The three new smart-contract mappings reuse mappings already vetted elsewhere in the
+catalog rather than introducing new ones: `SC013` is `SC001`'s weakness one call hop
+further out (SWC-107 → CWE-841), `SC014` is the same "sensitive function with no
+authorization check" shape as `SC005`/`SC006`/`SC007` (CWE-862), and `SC015` is the same
+unchecked-return weakness as `SC003` (SWC-104 → CWE-252).
 
 ## Listing rules (`sentinel rules`)
 
 `sentinel rules` aggregates the statically-declared `rules: RuleMeta[]` array from every
-registered `ScannerPlugin` and prints them (83 rules across the six built-in scanners today).
+registered `ScannerPlugin` and prints them (88 rules across the six built-in scanners today).
 Each `RuleMeta` carries `id`, `title`, `severity`, `defaultConfidence`, `category`,
 `description`, `recommendation`, optional `references`, and optional `compliance` (see
 [Compliance mapping](#compliance-mapping) above). Use `--format json` for a machine-readable

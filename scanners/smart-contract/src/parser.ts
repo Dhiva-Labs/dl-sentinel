@@ -32,6 +32,8 @@ import type {
   ContractInfo,
   ContractKind,
   FunctionInfo,
+  ModifierInfo,
+  ParameterInfo,
   ParsedSolidityFile,
   PragmaInfo,
   SourceLine,
@@ -64,6 +66,11 @@ interface ContractFrame extends Frame {
 interface FunctionFrame extends Frame {
   kind: 'function';
   info: FunctionInfo;
+}
+
+interface ModifierFrame extends Frame {
+  kind: 'modifier';
+  info: ModifierInfo;
 }
 
 function isContractFrame(frame: Frame | undefined): frame is ContractFrame {
@@ -206,16 +213,47 @@ function parseHeader(headerText: string): HeaderTokens | null {
   return { name, isConstructor, visibility, stateMutability, modifiers, parametersRaw };
 }
 
-function parseParameterNames(parametersRaw: string): string[] {
+const DATA_LOCATION_KEYWORDS = new Set(['memory', 'storage', 'calldata', 'indexed', 'payable']);
+
+/**
+ * Split a parameter list into `{ name, type }` pairs. Unnamed parameters
+ * (`function f(uint256)`) are omitted entirely, matching the long-standing
+ * `parameters` semantics. The type is every token before the name with data
+ * locations dropped, re-joined with single spaces — good enough to answer
+ * "is this an address?" / "is this an IERC20?" without a type checker.
+ */
+function parseParameters(parametersRaw: string): ParameterInfo[] {
   if (parametersRaw.trim() === '') return [];
   const chunks = splitTopLevel(parametersRaw, ',');
-  const names: string[] = [];
+  const params: ParameterInfo[] = [];
   for (const chunk of chunks) {
     const tokens = chunk.trim().split(/\s+/).filter(Boolean);
-    if (tokens.length >= 2) {
-      const last = tokens[tokens.length - 1]!;
-      if (/^[A-Za-z_$][\w$]*$/.test(last)) names.push(last);
-    }
+    if (tokens.length < 2) continue;
+    const last = tokens[tokens.length - 1]!;
+    if (!/^[A-Za-z_$][\w$]*$/.test(last)) continue;
+    const type = tokens
+      .slice(0, -1)
+      .filter((t) => !DATA_LOCATION_KEYWORDS.has(t))
+      .join(' ');
+    params.push({ name: last, type });
+  }
+  return params;
+}
+
+/**
+ * Base contract names from a `contract A is B, C(1)` header. Returns [] when
+ * there is no `is` clause. Constructor arguments are dropped; only the
+ * leading identifier of each comma-separated entry is kept.
+ */
+function parseBaseNames(header: string, nameEndIndex: number): string[] {
+  const tail = header.slice(nameEndIndex);
+  const isMatch = /^\s*\bis\b/.exec(tail);
+  if (!isMatch) return [];
+  const listText = tail.slice(isMatch[0].length);
+  const names: string[] = [];
+  for (const chunk of splitTopLevel(listText, ',')) {
+    const m = /^\s*([A-Za-z_$][\w$]*)/.exec(chunk);
+    if (m) names.push(m[1]!);
   }
   return names;
 }
@@ -241,7 +279,11 @@ function tryExtractStateVar(buf: string, startLine: number, contract: ContractIn
   if (!/^[A-Za-z_$][\w$]*$/.test(name)) return;
 
   const isConstantOrImmutable = /\b(constant|immutable)\b/.test(declPart);
-  contract.stateVariables.push({ name, line: startLine, isConstantOrImmutable });
+  // Leading token of the declaration: `IERC20 public token` -> `IERC20`.
+  // `mapping(address => uint256) public m` collapses to `mapping(address`
+  // under a whitespace split, so take only up to the first '(' as well.
+  const declaredType = (tokens[0] ?? '').split('(')[0] ?? '';
+  contract.stateVariables.push({ name, line: startLine, isConstantOrImmutable, declaredType });
 }
 
 export function parseSolidityFile(relPath: string, source: string): ParsedSolidityFile {
@@ -254,6 +296,7 @@ export function parseSolidityFile(relPath: string, source: string): ParsedSolidi
   const stack: Frame[] = [];
   let depth = 0;
   let currentFunctionFrame: FunctionFrame | null = null;
+  let currentModifierFrame: ModifierFrame | null = null;
 
   let stmtBuf = '';
   let stmtStartLine = -1;
@@ -289,13 +332,15 @@ export function parseSolidityFile(relPath: string, source: string): ParsedSolidi
     }
     const visibility = parsed.visibility ?? defaultVisibility;
     const stateMutability = parsed.stateMutability ?? 'nonpayable';
+    const declaredParameters = parseParameters(parsed.parametersRaw);
     const info: FunctionInfo = {
       name: parsed.name,
       isConstructor: parsed.isConstructor,
       visibility,
       stateMutability,
       modifiers: parsed.modifiers,
-      parameters: parseParameterNames(parsed.parametersRaw),
+      parameters: declaredParameters.map((p) => p.name),
+      declaredParameters,
       headerLine,
       hasBody: true,
       bodyStartLine: atLineObj.line,
@@ -306,9 +351,52 @@ export function parseSolidityFile(relPath: string, source: string): ParsedSolidi
     return frame;
   };
 
+  // Same "return the frame rather than assigning an outer `let`" shape as
+  // openFunctionFrame above, for the same control-flow-narrowing reason.
+  const openModifierFrame = (
+    headerText: string,
+    headerLine: number,
+    atLineObj: SourceLine,
+  ): ModifierFrame | null => {
+    const nameMatch = /^\s*modifier\s+([A-Za-z_$][\w$]*)/i.exec(headerText);
+    if (!nameMatch) {
+      warnings.push(`${relPath}:${headerLine}: could not parse modifier header, skipping`);
+      stack.push({ kind: 'other', depth: depth + 1 });
+      return null;
+    }
+    const openParen = headerText.indexOf('(', nameMatch[0].length);
+    let parameters: string[] = [];
+    if (openParen !== -1) {
+      const closeParen = findMatchingParen(headerText, openParen);
+      if (closeParen !== -1) {
+        parameters = parseParameters(headerText.slice(openParen + 1, closeParen)).map(
+          (p) => p.name,
+        );
+      }
+    }
+    const info: ModifierInfo = {
+      name: nameMatch[1]!,
+      parameters,
+      headerLine,
+      hasBody: true,
+      bodyStartLine: atLineObj.line,
+      body: [{ line: atLineObj.line, original: atLineObj.original, stripped: atLineObj.stripped }],
+    };
+    const frame: ModifierFrame = { kind: 'modifier', depth: depth + 1, info };
+    stack.push(frame);
+    return frame;
+  };
+
   for (const lineObj of lines) {
     if (currentFunctionFrame) {
       currentFunctionFrame.info.body.push({
+        line: lineObj.line,
+        original: lineObj.original,
+        stripped: lineObj.stripped,
+      });
+    }
+    if (currentModifierFrame) {
+      currentModifierFrame.info.body.push({
         line: lineObj.line,
         original: lineObj.original,
         stripped: lineObj.stripped,
@@ -338,6 +426,8 @@ export function parseSolidityFile(relPath: string, source: string): ParsedSolidi
               stateVariables: [],
               functions: [],
               modifierNames: [],
+              modifiers: [],
+              baseNames: parseBaseNames(header, m.index + m[0].length),
             };
             stack.push({ kind, depth: depth + 1, info } as ContractFrame);
             depth++;
@@ -354,9 +444,10 @@ export function parseSolidityFile(relPath: string, source: string): ParsedSolidi
         if (contractFrame && contractFrame.depth === depth) {
           const trimmedHeader = header.trim();
           if (/^modifier\b/i.test(trimmedHeader)) {
-            const nameMatch = /^modifier\s+([A-Za-z_$][\w$]*)/i.exec(trimmedHeader);
-            if (nameMatch) contractFrame.info.modifierNames.push(nameMatch[1]!);
-            stack.push({ kind: 'modifier', depth: depth + 1 });
+            currentModifierFrame = openModifierFrame(trimmedHeader, headerLine, lineObj);
+            if (currentModifierFrame) {
+              contractFrame.info.modifierNames.push(currentModifierFrame.info.name);
+            }
             depth++;
             resetStmt();
             continue;
@@ -385,6 +476,14 @@ export function parseSolidityFile(relPath: string, source: string): ParsedSolidi
             currentFunctionFrame = null;
             const owner = currentContractFrame();
             owner?.info.functions.push(fn);
+          } else if (top.kind === 'modifier') {
+            // Only openModifierFrame pushes a 'modifier' frame, and only on a
+            // successfully parsed header, so `info` is always present here.
+            const mod = (top as ModifierFrame).info;
+            mod.bodyEndLine = lineObj.line;
+            currentModifierFrame = null;
+            const owner = currentContractFrame();
+            owner?.info.modifiers.push(mod);
           } else if (isContractFrame(top)) {
             top.info.endLine = lineObj.line;
             contracts.push(top.info);
@@ -406,13 +505,15 @@ export function parseSolidityFile(relPath: string, source: string): ParsedSolidi
             if (parsed) {
               const visibility = parsed.visibility ?? defaultVisibility;
               const stateMutability = parsed.stateMutability ?? 'nonpayable';
+              const declaredParameters = parseParameters(parsed.parametersRaw);
               contractFrame.info.functions.push({
                 name: parsed.name,
                 isConstructor: parsed.isConstructor,
                 visibility,
                 stateMutability,
                 modifiers: parsed.modifiers,
-                parameters: parseParameterNames(parsed.parametersRaw),
+                parameters: declaredParameters.map((p) => p.name),
+                declaredParameters,
                 headerLine: stmtStartLine === -1 ? lineObj.line : stmtStartLine,
                 hasBody: false,
                 body: [],
@@ -421,6 +522,21 @@ export function parseSolidityFile(relPath: string, source: string): ParsedSolidi
               warnings.push(
                 `${relPath}:${lineObj.line}: could not parse function declaration, skipping`,
               );
+            }
+          } else if (/^modifier\b/i.test(header)) {
+            // `modifier X() virtual;` in an abstract contract: declared but
+            // unimplemented. Recorded body-less so guard analysis reports it
+            // as unresolvable rather than "provably not a guard".
+            const nameMatch = /^modifier\s+([A-Za-z_$][\w$]*)/i.exec(header);
+            if (nameMatch) {
+              contractFrame.info.modifierNames.push(nameMatch[1]!);
+              contractFrame.info.modifiers.push({
+                name: nameMatch[1]!,
+                parameters: [],
+                headerLine: stmtStartLine === -1 ? lineObj.line : stmtStartLine,
+                hasBody: false,
+                body: [],
+              });
             }
           } else {
             tryExtractStateVar(
@@ -452,24 +568,28 @@ export function parseSolidityFile(relPath: string, source: string): ParsedSolidi
     for (const frame of stack) {
       if (frame.kind === 'function') {
         (frame as FunctionFrame).info.bodyEndLine = lastLine;
+      } else if (frame.kind === 'modifier') {
+        (frame as ModifierFrame).info.bodyEndLine = lastLine;
       } else if (isContractFrame(frame)) {
         frame.info.endLine = lastLine;
       }
     }
     // Outermost first, so a contract frame is already in `contracts` (by
-    // reference) by the time we look for it as a function frame's parent.
+    // reference) by the time we look for it as a function/modifier frame's
+    // parent.
+    const enclosingContract = (index: number): ContractFrame | undefined => {
+      for (let j = index - 1; j >= 0; j--) {
+        const candidate = stack[j]!;
+        if (isContractFrame(candidate)) return candidate;
+      }
+      return undefined;
+    };
     for (let i = 0; i < stack.length; i++) {
       const frame = stack[i]!;
       if (frame.kind === 'function') {
-        let parent: ContractFrame | undefined;
-        for (let j = i - 1; j >= 0; j--) {
-          const candidate = stack[j]!;
-          if (isContractFrame(candidate)) {
-            parent = candidate;
-            break;
-          }
-        }
-        parent?.info.functions.push((frame as FunctionFrame).info);
+        enclosingContract(i)?.info.functions.push((frame as FunctionFrame).info);
+      } else if (frame.kind === 'modifier') {
+        enclosingContract(i)?.info.modifiers.push((frame as ModifierFrame).info);
       } else if (isContractFrame(frame)) {
         contracts.push(frame.info);
       }
