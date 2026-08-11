@@ -12,7 +12,7 @@
 export type Role = 'admin' | 'operator' | 'viewer';
 
 /** The things the dashboard gates on, named after the UI affordance. */
-export type GatedAction = 'startScan' | 'manageSchedules' | 'manageUsers';
+export type GatedAction = 'startScan' | 'manageSchedules' | 'manageUsers' | 'manageNotifications';
 
 export function isRole(value: unknown): value is Role {
   return value === 'admin' || value === 'operator' || value === 'viewer';
@@ -29,7 +29,8 @@ export function can(role: unknown, action: GatedAction): boolean {
   if (!isRole(role)) return false;
   if (role === 'admin') return true;
   if (action === 'startScan') return role === 'operator';
-  // manageSchedules and manageUsers are admin-only, handled above.
+  // manageSchedules, manageUsers and manageNotifications are admin-only,
+  // handled above.
   return false;
 }
 
