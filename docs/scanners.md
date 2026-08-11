@@ -44,7 +44,6 @@ noted below; run `sentinel rules` for the live catalog.
 ## Source code (`source`)
 
 - **Package:** `scanners/source` (`@dl-sentinel/scanner-source`)
-- **Rule id prefix:** `C`
 - **Category:** `source`
 - **Rule id prefix:** `C` — 10 rules (command injection, `eval`/dynamic code, SQL from strings,
   insecure deserialization, path traversal, weak password hashing, insecure randomness, disabled
@@ -57,7 +56,6 @@ noted below; run `sentinel rules` for the live catalog.
 ## Infrastructure (`infra`)
 
 - **Package:** `scanners/infra` (`@dl-sentinel/scanner-infra`)
-- **Rule id prefix:** `I`
 - **Categories:** `docker`, `infrastructure` — findings are categorized by artifact type rather
   than there being a single category for the scanner.
 - **Purpose:** checks container and infrastructure configuration: Dockerfiles, Docker Compose
@@ -77,7 +75,6 @@ noted below; run `sentinel rules` for the live catalog.
 ## API (`api`)
 
 - **Package:** `scanners/api` (`@dl-sentinel/scanner-api`)
-- **Rule id prefix:** `A`
 - **Category:** `api`
 - **Rule id prefix:** `A` — 10 rules (`A001`–`A010`: missing/weak auth, API key in query,
   non-HTTPS, Basic auth, unauthenticated state-changing operations, sensitive response fields,
@@ -94,7 +91,6 @@ noted below; run `sentinel rules` for the live catalog.
 ## Smart contract (`smart-contract`)
 
 - **Package:** `scanners/smart-contract` (`@dl-sentinel/scanner-smart-contract`)
-- **Rule id prefix:** `SC`
 - **Category:** `smart-contract`
 - **Rule id prefix:** `SC` — 17 rules (reentrancy `SC001` and cross-function reentrancy `SC013`,
   `tx.origin` auth, unchecked low-level calls, unsafe `delegatecall`, unprotected
