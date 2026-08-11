@@ -4,7 +4,7 @@ DL Sentinel ships six scanner plugins, each implementing the `ScannerPlugin` con
 in [Scanner interface](scanner-interface.md) and registered explicitly by the apps that use them
 (the CLI and the API server — the engine does not discover scanners by magic).
 
-All six scanners are implemented and tested; 83 rules total. The rule count per scanner is
+All six scanners are implemented and tested; 88 rules total. The rule count per scanner is
 noted below; run `sentinel rules` for the live catalog.
 
 ## Secrets (`secrets`)
@@ -96,12 +96,28 @@ noted below; run `sentinel rules` for the live catalog.
 - **Package:** `scanners/smart-contract` (`@dl-sentinel/scanner-smart-contract`)
 - **Rule id prefix:** `SC`
 - **Category:** `smart-contract`
-- **Rule id prefix:** `SC` — 12 rules (reentrancy, `tx.origin` auth, unchecked low-level calls,
-  unsafe `delegatecall`, unprotected `selfdestruct`/initializer/mint, pre-0.8 arithmetic,
-  floating/outdated pragma, weak randomness, deprecated constructs, unguarded owner setters).
+- **Rule id prefix:** `SC` — 17 rules (reentrancy `SC001` and cross-function reentrancy `SC013`,
+  `tx.origin` auth, unchecked low-level calls, unsafe `delegatecall`, unprotected
+  `selfdestruct`/initializer/mint, pre-0.8 arithmetic, floating/outdated pragma, weak randomness,
+  deprecated constructs, unguarded owner setters, unprotected proxy upgrade `SC014`, unchecked
+  ERC20 transfer return `SC015`, missing zero-address check `SC016`, `delegatecall` in a loop
+  `SC017`).
 - **Purpose:** analyzes Solidity/EVM source for risk patterns using a line-based parser (comment
   and string stripping with preserved line numbers). Findings are heuristics; confidence is set
   accordingly and never claims a contract is secure because no rule fired.
+- **Contract-level model:** on top of the line parse, the scanner resolves each file into a
+  contract model — same-file inheritance (functions, modifiers, and state variables from base
+  contracts declared in the same file), modifier bodies, and an intra-file call graph. That is
+  what lets access-control rules judge a modifier by what its body *does* rather than what it is
+  *named*, and lets reentrancy analysis follow an external call and a state write across an
+  internal call hop. Documented limits, all chosen to under-report rather than guess:
+  - **Same file only.** A base contract or modifier reached through an `import` cannot be read. An
+    applied-but-unreadable modifier is *assumed* protective, so a correctly-guarded OpenZeppelin
+    contract is not reported — and neither is an incorrectly-guarded one.
+  - **Linearization is most-derived-wins, left-to-right**, not exact C3. It differs from Solidity
+    only when two bases declare the same member and the derived contract does not override it.
+  - **Overloads resolve by name only**; call edges are name matches, not bindings.
+  - **Cross-function effects are bounded at 3 call hops.**
 - **Supported files:** `*.sol`.
 
 ## See also
