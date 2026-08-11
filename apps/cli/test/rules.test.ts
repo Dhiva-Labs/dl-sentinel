@@ -13,6 +13,7 @@ interface RuleRow {
   confidence: string;
   category: string;
   scanner: string;
+  compliance?: { cwe?: string[]; owasp?: string[] };
 }
 
 describe('rules command', () => {
@@ -23,8 +24,11 @@ describe('rules command', () => {
     expect(rows).toHaveLength(TOTAL_RULES);
     const first = rows[0];
     expect(first).toBeDefined();
+    // S001 (the first secrets rule) carries a compliance mapping, so it is
+    // present on the very first row.
     expect(Object.keys(first ?? {}).sort()).toEqual([
       'category',
+      'compliance',
       'confidence',
       'id',
       'scanner',
@@ -67,5 +71,56 @@ describe('rules command', () => {
   it('rejects stray positional arguments with exit 64', async () => {
     const { code } = await runCli(['rules', 'extra']);
     expect(code).toBe(EXIT.USAGE);
+  });
+});
+
+describe('compliance mapping', () => {
+  it('json format carries the compliance object verbatim for a mapped rule', async () => {
+    const { code, stdout } = await runCli(['rules', '--format', 'json']);
+    expect(code).toBe(EXIT.OK);
+    const rows = JSON.parse(stdout) as RuleRow[];
+    const s001 = rows.find((row) => row.id === 'S001');
+    expect(s001).toBeDefined();
+    expect(s001?.compliance).toEqual({ cwe: ['CWE-798'], owasp: ['A07:2021'] });
+  });
+
+  it('json format omits the compliance key for a rule with no canonical mapping', async () => {
+    const { code, stdout } = await runCli(['rules', '--format', 'json']);
+    expect(code).toBe(EXIT.OK);
+    const rows = JSON.parse(stdout) as RuleRow[];
+    // D002 ("dependency vulnerability check skipped") is an informational
+    // rule about scanner configuration, not a target weakness -- it
+    // deliberately carries no CWE/OWASP mapping.
+    const d002 = rows.find((row) => row.id === 'D002');
+    expect(d002).toBeDefined();
+    expect(d002).not.toHaveProperty('compliance');
+  });
+
+  it('at least one rule from every built-in scanner carries a compliance mapping', async () => {
+    const { code, stdout } = await runCli(['rules', '--format', 'json']);
+    expect(code).toBe(EXIT.OK);
+    const rows = JSON.parse(stdout) as RuleRow[];
+    for (const scanner of BUILTIN_SCANNERS) {
+      const mapped = rows.filter((row) => row.scanner === scanner.id && row.compliance);
+      expect(mapped.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('terminal output appends compliance ids to a mapped rule line', async () => {
+    const { code, stdout } = await runCli(['rules']);
+    expect(code).toBe(EXIT.OK);
+    const line = stdout.split('\n').find((l) => l.trim().startsWith('S001'));
+    expect(line).toBeDefined();
+    expect(line).toContain('CWE-798');
+    expect(line).toContain('A07:2021');
+  });
+
+  it('terminal output omits the compliance segment for an unmapped rule line', async () => {
+    const { code, stdout } = await runCli(['rules']);
+    expect(code).toBe(EXIT.OK);
+    const line = stdout.split('\n').find((l) => l.trim().startsWith('D002'));
+    expect(line).toBeDefined();
+    expect(line).not.toContain('CWE-');
+    expect(line).not.toMatch(/A\d{2}:2021/);
   });
 });
