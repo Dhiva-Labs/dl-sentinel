@@ -73,6 +73,30 @@ It configures an allowlisted base directory — a `path` submitted to `POST /api
 resolve inside it, or the request is rejected. This prevents an authenticated caller from pointing
 the server at arbitrary filesystem locations.
 
+## External scanner plugins (`SENTINEL_PLUGINS`)
+
+The server can register third-party scanners alongside the built-ins. `SENTINEL_PLUGINS` takes a
+comma-separated list of specs — a file path, or the name of an installed package:
+
+```bash
+SENTINEL_PLUGINS=dl-sentinel-plugin-acme,/opt/sentinel/plugins/infra.mjs sentinel-api
+```
+
+They are imported **at startup**, in the order listed, and registered after the built-in scanners.
+From then on a plugin is treated like any built-in: its rules appear in `GET /api/rules`, its id is
+accepted in `"scanners": [...]` on `POST /api/scans` and `POST /api/schedules` and in the
+`?scanner=` finding filter, and its findings appear in scan records and rendered reports.
+
+If any spec fails to load — unresolvable, throws while importing, malformed, or claiming an id a
+built-in or another plugin already has — **the server refuses to start**: it writes the reason to
+stderr and exits `1`. Starting anyway would mean serving clean results for scanners the operator
+configured but that never ran.
+
+`SENTINEL_PLUGINS` is the server's only source of plugins. A `plugins:` key in a scanned
+repository's `sentinel.yml` is ignored with a warning, because config travels inside the
+repositories being scanned and must never decide what code this process imports. A plugin runs
+with the server's privileges — only deploy plugins you have reviewed. See [Plugins](plugins.md).
+
 ## Endpoints
 
 | Method | Path | Purpose |
@@ -82,7 +106,7 @@ the server at arbitrary filesystem locations.
 | `GET` | `/api/scans/:id` | Get one scan record (includes its `report` once completed, or an `error` when failed). |
 | `GET` | `/api/scans/:id/findings` | Get the findings for one completed scan. `409` while it is still queued/running. |
 | `GET` | `/api/findings` | Get findings across completed scans; filterable by severity and scanner. |
-| `GET` | `/api/rules` | List rules from registered scanners — the same data `sentinel rules` prints. See [Rules](rules.md#listing-rules-sentinel-rules). |
+| `GET` | `/api/rules` | List rules from registered scanners — the built-ins plus any [plugins](#external-scanner-plugins-sentinel_plugins) — the same data `sentinel rules` prints. See [Rules](rules.md#listing-rules-sentinel-rules). |
 | `GET` | `/api/reports/:id` | Get a rendered report for a completed scan. `?format=json\|markdown\|sarif` selects the format. `409` while it is still queued/running. |
 | `POST` | `/api/schedules` | Create a scheduled scan. Body: `{ "path": "/abs/dir", "intervalMs": 3600000, "scanners": ["secrets", ...]? }`. Same validation as `POST /api/scans`, plus `intervalMs` must be a number `>= 60000` (60s). Returns `201` with the schedule record. See [Scheduled scans](#scheduled-scans). |
 | `GET` | `/api/schedules` | List schedule records (newest first). |
@@ -365,3 +389,7 @@ under any circumstance — starting a scan only ever reads files under the reque
 never uploads source: a notification carries severity counts and identifiers, never findings,
 evidence, or file contents, and it sends nothing anywhere unless a channel has been configured. See
 [Security](security.md).
+
+The one thing this process does execute is code the **operator** chose: the scanners it ships with,
+and any plugin named in `SENTINEL_PLUGINS`. That list can never be influenced by a scanned
+repository or by anything sent over the API — see [Plugins](plugins.md).
