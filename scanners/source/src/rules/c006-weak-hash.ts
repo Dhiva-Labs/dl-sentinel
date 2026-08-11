@@ -113,6 +113,7 @@ export const c006WeakHash: RuleModule = {
       'Use a password-hashing KDF designed to be slow: bcrypt, scrypt, Argon2, or ' +
       'PBKDF2 with a high iteration count and a per-password salt.',
     references: [],
+    compliance: { cwe: ['CWE-916'], owasp: ['A02:2021'] },
   },
   languages: ['js', 'py', 'rb', 'php', 'java'],
   check(ctx) {

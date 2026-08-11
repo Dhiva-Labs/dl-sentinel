@@ -66,6 +66,7 @@ export const c007InsecureRandom: RuleModule = {
       'Use a cryptographically secure source: crypto.randomBytes/crypto.randomUUID in ' +
       "Node.js, or Python's secrets module (secrets.token_hex, secrets.token_urlsafe).",
     references: [],
+    compliance: { cwe: ['CWE-330'], owasp: ['A02:2021'] },
   },
   languages: ['js', 'py'],
   check(ctx) {

@@ -111,6 +111,20 @@ function countByScanner(items) {
     .sort((a, b) => b.count - a.count || a.scanner.localeCompare(b.scanner));
 }
 
+/**
+ * Flattens a rule's `compliance` mapping (mirrors RuleMeta.compliance in
+ * packages/core/src/types.ts) into an ordered list of chip labels, e.g.
+ * ["CWE-798", "A07:2021"]. Mirrors apps/web/src/rules.ts#complianceChips --
+ * duplicated here per this file's own convention (see header comment) since
+ * public/ ships as plain browser JS with no build step.
+ */
+function complianceChips(compliance) {
+  if (!compliance || typeof compliance !== 'object') return [];
+  const cwe = Array.isArray(compliance.cwe) ? compliance.cwe : [];
+  const owasp = Array.isArray(compliance.owasp) ? compliance.owasp : [];
+  return [...cwe, ...owasp];
+}
+
 function isHttpUrl(value) {
   if (typeof value !== 'string') return false;
   return (
@@ -1372,6 +1386,21 @@ async function renderFindingsPage(view, query) {
   }
 }
 
+/**
+ * Builds the "Compliance" table cell for a rule: one small chip per CWE/OWASP
+ * id (textContent only, via el() -- never innerHTML), or an em dash when the
+ * rule carries no canonical mapping.
+ */
+function buildComplianceCell(compliance) {
+  const chips = complianceChips(compliance);
+  if (chips.length === 0) return el('td', { class: 'mono-cell', text: '—' });
+  return el(
+    'td',
+    { class: 'compliance-cell' },
+    chips.map((chip) => el('span', { class: 'badge compliance-chip', text: chip })),
+  );
+}
+
 async function renderRulesPage(view) {
   view.appendChild(el('p', { class: 'loading', role: 'status', text: 'Loading rules…' }));
   let rules;
@@ -1397,6 +1426,7 @@ async function renderRulesPage(view) {
     el('th', { scope: 'col' }, 'Severity'),
     el('th', { scope: 'col' }, 'Confidence'),
     el('th', { scope: 'col' }, 'Category'),
+    el('th', { scope: 'col' }, 'Compliance'),
     el('th', { scope: 'col' }, 'Description'),
   ]);
   const tbody = el('tbody');
@@ -1408,6 +1438,7 @@ async function renderRulesPage(view) {
         el('td', {}, severityBadge(rule && rule.severity)),
         el('td', { text: (rule && rule.defaultConfidence) || '—' }),
         el('td', { text: (rule && rule.category) || '—' }),
+        buildComplianceCell(rule && rule.compliance),
         el('td', { class: 'description-cell', text: (rule && rule.description) || '—' }),
       ]),
     );

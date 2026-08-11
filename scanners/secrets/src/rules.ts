@@ -60,6 +60,7 @@ export const rules: RuleMeta[] = [
       'https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html',
       CWE_798,
     ],
+    compliance: { cwe: ['CWE-798'], owasp: ['A07:2021'] },
   },
   {
     id: RULE_IDS.awsSecretAccessKey,
@@ -74,6 +75,7 @@ export const rules: RuleMeta[] = [
       'https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html',
       CWE_798,
     ],
+    compliance: { cwe: ['CWE-798'], owasp: ['A07:2021'] },
   },
   {
     id: RULE_IDS.githubToken,
@@ -88,6 +90,7 @@ export const rules: RuleMeta[] = [
       'https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/about-authentication-to-github',
       CWE_798,
     ],
+    compliance: { cwe: ['CWE-798'], owasp: ['A07:2021'] },
   },
   {
     id: RULE_IDS.gitlabToken,
@@ -99,6 +102,7 @@ export const rules: RuleMeta[] = [
       'A GitLab personal access token (glpat- prefix) appears in tracked content. These tokens can carry api scope, which is full account access.',
     recommendation: `Revoke the token in GitLab access-token settings. ${ROTATE_AND_PURGE}`,
     references: ['https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html', CWE_798],
+    compliance: { cwe: ['CWE-798'], owasp: ['A07:2021'] },
   },
   {
     id: RULE_IDS.slackToken,
@@ -110,6 +114,7 @@ export const rules: RuleMeta[] = [
       'A Slack API token (xoxb/xoxa/xoxp/xoxr/xoxs prefix) appears in tracked content. Slack tokens can read and post messages as the app or the user that issued them.',
     recommendation: `Revoke the token in the Slack app configuration. ${ROTATE_AND_PURGE}`,
     references: ['https://api.slack.com/authentication/token-types', CWE_798],
+    compliance: { cwe: ['CWE-798'], owasp: ['A07:2021'] },
   },
   {
     id: RULE_IDS.slackWebhook,
@@ -121,6 +126,7 @@ export const rules: RuleMeta[] = [
       'A Slack incoming-webhook URL appears in tracked content. The path after /services/ is the credential: anyone holding it can post into the channel.',
     recommendation: `Delete the webhook in the Slack app configuration and issue a new one. ${ROTATE_AND_PURGE}`,
     references: ['https://api.slack.com/messaging/webhooks', CWE_798],
+    compliance: { cwe: ['CWE-798'], owasp: ['A07:2021'] },
   },
   {
     id: RULE_IDS.stripeLiveKey,
@@ -132,6 +138,7 @@ export const rules: RuleMeta[] = [
       'A Stripe live-mode secret or restricted key (sk_live_/rk_live_) appears in tracked content. Live keys move real money.',
     recommendation: `Roll the key in the Stripe dashboard immediately. ${ROTATE_AND_PURGE}`,
     references: ['https://stripe.com/docs/keys', CWE_798],
+    compliance: { cwe: ['CWE-798'], owasp: ['A07:2021'] },
   },
   {
     id: RULE_IDS.stripeTestKey,
@@ -144,6 +151,7 @@ export const rules: RuleMeta[] = [
     recommendation:
       'Roll the test key and load it from the environment, so the same code path is safe when it runs with a live key.',
     references: ['https://stripe.com/docs/keys', CWE_312],
+    compliance: { cwe: ['CWE-312'], owasp: ['A04:2021'] },
   },
   {
     id: RULE_IDS.googleApiKey,
@@ -155,6 +163,7 @@ export const rules: RuleMeta[] = [
       'A Google API key (AIza prefix) appears in tracked content. Unrestricted keys can be used by anyone and are billed to the project that owns them.',
     recommendation: `Delete the key in the Google Cloud console and issue a restricted replacement. ${ROTATE_AND_PURGE}`,
     references: ['https://cloud.google.com/docs/authentication/api-keys', CWE_798],
+    compliance: { cwe: ['CWE-798'], owasp: ['A07:2021'] },
   },
   {
     id: RULE_IDS.twilioApiKey,
@@ -166,6 +175,7 @@ export const rules: RuleMeta[] = [
       'A Twilio API key SID (SK + 32 hex characters) appears in tracked content. Twilio credentials can send messages and place calls at the account owner’s expense.',
     recommendation: `Delete the API key in the Twilio console. ${ROTATE_AND_PURGE}`,
     references: ['https://www.twilio.com/docs/iam/api-keys', CWE_798],
+    compliance: { cwe: ['CWE-798'], owasp: ['A07:2021'] },
   },
   {
     id: RULE_IDS.twilioAccount,
@@ -177,6 +187,7 @@ export const rules: RuleMeta[] = [
       'A Twilio account SID (AC + 32 hex) or a 32-hex auth token appears on a line whose context names Twilio and an auth token. The SID and auth token together are full account credentials.',
     recommendation: `Rotate the auth token in the Twilio console. ${ROTATE_AND_PURGE}`,
     references: ['https://www.twilio.com/docs/iam/access-tokens', CWE_798],
+    compliance: { cwe: ['CWE-798'], owasp: ['A07:2021'] },
   },
   {
     id: RULE_IDS.sendgridKey,
@@ -191,6 +202,7 @@ export const rules: RuleMeta[] = [
       'https://docs.sendgrid.com/ui/account-and-settings/api-keys',
       'https://cwe.mitre.org/data/definitions/798.html',
     ],
+    compliance: { cwe: ['CWE-798'], owasp: ['A07:2021'] },
   },
   {
     id: RULE_IDS.npmToken,
@@ -202,6 +214,7 @@ export const rules: RuleMeta[] = [
       'An npm access token (npm_ prefix) appears in tracked content. Publish-scoped tokens allow pushing package versions, which is a supply-chain compromise.',
     recommendation: `Revoke the token with npm token revoke. ${ROTATE_AND_PURGE}`,
     references: ['https://docs.npmjs.com/about-access-tokens', CWE_798],
+    compliance: { cwe: ['CWE-798'], owasp: ['A07:2021'] },
   },
   {
     id: RULE_IDS.openaiKey,
@@ -213,6 +226,7 @@ export const rules: RuleMeta[] = [
       'A model-provider API key in the sk-<random> form appears in tracked content. These keys are bearer credentials billed to the owning account.',
     recommendation: `Revoke the key in the provider console. ${ROTATE_AND_PURGE}`,
     references: ['https://platform.openai.com/docs/api-reference/authentication', CWE_798],
+    compliance: { cwe: ['CWE-798'], owasp: ['A07:2021'] },
   },
   {
     id: RULE_IDS.azureStorageKey,
@@ -227,6 +241,7 @@ export const rules: RuleMeta[] = [
       'https://learn.microsoft.com/azure/storage/common/storage-account-keys-manage',
       CWE_798,
     ],
+    compliance: { cwe: ['CWE-798'], owasp: ['A07:2021'] },
   },
   {
     id: RULE_IDS.azureSasToken,
@@ -239,6 +254,7 @@ export const rules: RuleMeta[] = [
     recommendation:
       'Revoke the signing key or the stored access policy behind the signature, then issue short-lived SAS tokens at runtime.',
     references: ['https://learn.microsoft.com/azure/storage/common/storage-sas-overview', CWE_798],
+    compliance: { cwe: ['CWE-798'], owasp: ['A07:2021'] },
   },
   {
     id: RULE_IDS.privateKey,
@@ -250,6 +266,12 @@ export const rules: RuleMeta[] = [
       'A PEM private key block appears in tracked content. Whoever holds the key can impersonate the identity it belongs to. Evidence is the BEGIN line only — key material is never read into a finding.',
     recommendation: `Treat the key as compromised: reissue the certificate or key pair and revoke the old one. ${ROTATE_AND_PURGE}`,
     references: ['https://cwe.mitre.org/data/definitions/321.html', CWE_312],
+    // Both CWEs already cited above are kept: CWE-321 (hard-coded
+    // cryptographic key) is the specific, defining weakness; CWE-312
+    // (cleartext storage of sensitive information) is also literally true
+    // and was already vetted by whoever added it to `references`. The
+    // OWASP mapping is derived from the more specific/central CWE-321.
+    compliance: { cwe: ['CWE-321', 'CWE-312'], owasp: ['A02:2021'] },
   },
   {
     id: RULE_IDS.databaseUrlPassword,
@@ -261,6 +283,7 @@ export const rules: RuleMeta[] = [
       'A database or broker URL (postgres, mysql, mongodb, redis, amqp) carries an inline user:password. The password is a live credential for the data store.',
     recommendation: `Rotate the database user’s password and build the URL from environment variables. ${ROTATE_AND_PURGE}`,
     references: [CWE_798, CWE_312],
+    compliance: { cwe: ['CWE-798', 'CWE-312'], owasp: ['A07:2021'] },
   },
   {
     id: RULE_IDS.basicAuthUrl,
@@ -272,6 +295,7 @@ export const rules: RuleMeta[] = [
       'An http(s) URL carries inline user:password basic-auth credentials. Such URLs leak through logs, proxies, and browser history.',
     recommendation: `Rotate the password and pass credentials in an Authorization header sourced from the environment. ${ROTATE_AND_PURGE}`,
     references: ['https://cwe.mitre.org/data/definitions/522.html', CWE_312],
+    compliance: { cwe: ['CWE-522', 'CWE-312'], owasp: ['A04:2021'] },
   },
   {
     id: RULE_IDS.jsonWebToken,
@@ -284,6 +308,7 @@ export const rules: RuleMeta[] = [
     recommendation:
       'Confirm whether the token is live. If it is, revoke the session or signing key and load tokens at runtime; if it is a sample, replace it with an obviously non-functional value.',
     references: ['https://datatracker.ietf.org/doc/html/rfc7519', CWE_312],
+    compliance: { cwe: ['CWE-312'], owasp: ['A04:2021'] },
   },
   {
     id: RULE_IDS.sensitiveAssignment,
@@ -296,6 +321,7 @@ export const rules: RuleMeta[] = [
     recommendation:
       'Move the value to a secret manager or CI secret and reference it from the environment; commit only a placeholder in the checked-in file.',
     references: [CWE_798, CWE_312],
+    compliance: { cwe: ['CWE-798', 'CWE-312'], owasp: ['A07:2021'] },
   },
   {
     id: RULE_IDS.highEntropyAssignment,
@@ -308,6 +334,7 @@ export const rules: RuleMeta[] = [
     recommendation:
       'Confirm whether the value is a live credential. If it is, rotate it and load it from the environment; if it is not, rename the identifier or use an obviously inert value.',
     references: [CWE_798, CWE_312],
+    compliance: { cwe: ['CWE-798', 'CWE-312'], owasp: ['A07:2021'] },
   },
 ];
 

@@ -19,6 +19,7 @@ export const rules: RuleMeta[] = [
       'Upgrade the affected package to the fixed version named in the advisory, or another ' +
       'version outside every affected range.',
     references: [],
+    compliance: { cwe: ['CWE-1395'], owasp: ['A06:2021'] },
   },
   {
     id: 'D002',

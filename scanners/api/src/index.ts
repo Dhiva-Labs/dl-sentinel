@@ -33,6 +33,7 @@ const rules: RuleMeta[] = [
     recommendation:
       'Define an authentication scheme and require it globally or on every operation that needs it.',
     references: [],
+    compliance: { cwe: ['CWE-306'], owasp: ['A07:2021'] },
   },
   {
     id: 'A002',
@@ -45,6 +46,7 @@ const rules: RuleMeta[] = [
     recommendation:
       'Send the API key via an Authorization or custom header instead of a query-string parameter.',
     references: [],
+    compliance: { cwe: ['CWE-598'], owasp: ['A04:2021'] },
   },
   {
     id: 'A003',
@@ -56,6 +58,7 @@ const rules: RuleMeta[] = [
       'A server URL (OpenAPI), scheme entry (Swagger 2), or saved request URL (Postman) uses plain http://. Localhost/loopback addresses are downgraded to informational.',
     recommendation: 'Serve and call the API only over https://.',
     references: [],
+    compliance: { cwe: ['CWE-319'], owasp: ['A02:2021'] },
   },
   {
     id: 'A004',
@@ -67,6 +70,7 @@ const rules: RuleMeta[] = [
       'An HTTP Basic authentication scheme is declared. Basic auth sends credentials base64-encoded on every request.',
     recommendation: 'Replace HTTP Basic with a token-based scheme (bearer/OAuth2) over TLS.',
     references: [],
+    compliance: { cwe: ['CWE-522'], owasp: ['A04:2021'] },
   },
   {
     id: 'A005',
@@ -78,6 +82,7 @@ const rules: RuleMeta[] = [
       'A POST/PUT/PATCH/DELETE operation has no effective security requirement. An explicit operation-level "security: []" override of an otherwise-present global requirement is reported as confirmed.',
     recommendation: 'Require authentication on every state-changing operation.',
     references: [],
+    compliance: { cwe: ['CWE-306'], owasp: ['A07:2021'] },
   },
   {
     id: 'A006',
@@ -90,6 +95,7 @@ const rules: RuleMeta[] = [
     recommendation:
       'Avoid returning credentials/secrets in API responses; document any intentional exposure explicitly.',
     references: [],
+    compliance: { cwe: ['CWE-200'], owasp: ['A01:2021'] },
   },
   {
     id: 'A007',
@@ -102,6 +108,7 @@ const rules: RuleMeta[] = [
     recommendation:
       'Document rate-limit behavior: 429 responses and/or RateLimit/X-RateLimit-* headers.',
     references: [],
+    compliance: { cwe: ['CWE-799'], owasp: ['A04:2021'] },
   },
   {
     id: 'A008',
@@ -114,6 +121,7 @@ const rules: RuleMeta[] = [
     recommendation:
       'Migrate to OAuth2 authorization code + PKCE, or a bearer-token scheme over TLS.',
     references: [],
+    compliance: { cwe: ['CWE-287'], owasp: ['A07:2021'] },
   },
   {
     id: 'A009',
@@ -126,6 +134,7 @@ const rules: RuleMeta[] = [
     recommendation:
       'Add maxLength/pattern/enum/format to string fields and maximum/minimum to numeric fields.',
     references: [],
+    compliance: { cwe: ['CWE-20'], owasp: ['A03:2021'] },
   },
   {
     id: 'A010',
@@ -138,6 +147,7 @@ const rules: RuleMeta[] = [
     recommendation:
       'Remove literal secrets from the collection; use vault/environment variables and rotate any exposed credential.',
     references: [],
+    compliance: { cwe: ['CWE-798'], owasp: ['A07:2021'] },
   },
 ];
 

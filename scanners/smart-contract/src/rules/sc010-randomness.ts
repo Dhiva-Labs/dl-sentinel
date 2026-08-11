@@ -67,6 +67,9 @@ export const sc010Randomness: RuleDefinition = {
     recommendation:
       'Use a verifiable randomness source (e.g. Chainlink VRF) instead of block attributes.',
     references: ['https://swcregistry.io/docs/SWC-120'],
+    // SWC-120's own "Relationships" entry cites this exact CWE; also the
+    // general canonical mapping for insecure randomness.
+    compliance: { cwe: ['CWE-330'] },
   },
   evaluate,
 };

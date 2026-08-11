@@ -95,6 +95,8 @@ export const sc011Deprecated: RuleDefinition = {
     recommendation:
       'Replace with the modern equivalent (selfdestruct, revert/require, explicit types, keccak256, call).',
     references: ['https://swcregistry.io/docs/SWC-111'],
+    // SWC-111's own "Relationships" entry cites this exact CWE.
+    compliance: { cwe: ['CWE-477'] },
   },
   evaluate,
 };

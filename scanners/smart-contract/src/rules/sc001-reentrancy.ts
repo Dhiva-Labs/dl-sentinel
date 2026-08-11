@@ -91,6 +91,9 @@ export const sc001Reentrancy: RuleDefinition = {
     recommendation:
       'Apply checks-effects-interactions (write state before the external call) or guard the function with a reentrancy modifier.',
     references: ['https://swcregistry.io/docs/SWC-107'],
+    // SWC-107's own "Relationships" entry cites this exact CWE (verified against
+    // the SWC Registry's published CWE mapping table).
+    compliance: { cwe: ['CWE-841'] },
   },
   evaluate,
 };

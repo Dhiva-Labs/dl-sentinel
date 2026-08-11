@@ -61,6 +61,9 @@ export const sc007Mint: RuleDefinition = {
       'A function whose name contains "mint" is public/external with no access-control modifier and no msg.sender guard.',
     recommendation: 'Restrict minting to an access-controlled role (e.g. onlyOwner/onlyMinter).',
     references: [],
+    // No SWC reference to anchor to, but the description is a direct, textbook
+    // match for "no authorization check guards this sensitive function".
+    compliance: { cwe: ['CWE-862'] },
   },
   evaluate,
 };

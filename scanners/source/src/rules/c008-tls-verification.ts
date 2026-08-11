@@ -74,6 +74,7 @@ export const c008TlsVerification: RuleModule = {
       'private CA is involved, add its certificate to the trust store instead of ' +
       'disabling verification.',
     references: [],
+    compliance: { cwe: ['CWE-295'], owasp: ['A07:2021'] },
   },
   languages: ['js', 'py', 'go', 'php'],
   check(ctx) {

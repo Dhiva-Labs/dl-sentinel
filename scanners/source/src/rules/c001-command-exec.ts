@@ -101,6 +101,7 @@ export const c001CommandExec: RuleModule = {
       'Node.js, subprocess.run([...], shell=False) in Python). If a shell is ' +
       'unavoidable, strictly allowlist and escape every interpolated value.',
     references: [],
+    compliance: { cwe: ['CWE-78'], owasp: ['A03:2021'] },
   },
   languages: ['js', 'py', 'rb'],
   check(ctx) {

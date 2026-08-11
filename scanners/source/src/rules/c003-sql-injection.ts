@@ -42,6 +42,7 @@ export const c003SqlInjection: RuleModule = {
       '`$1`, or `%s` with a separate params argument) instead of building SQL text by ' +
       'hand.',
     references: [],
+    compliance: { cwe: ['CWE-89'], owasp: ['A03:2021'] },
   },
   languages: ['js', 'py', 'rb', 'php', 'go', 'java'],
   check(ctx) {

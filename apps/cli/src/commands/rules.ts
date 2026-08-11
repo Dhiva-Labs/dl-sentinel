@@ -1,4 +1,4 @@
-import type { Category, Confidence, ScannerPlugin, Severity } from '@dl-sentinel/core';
+import type { Category, Confidence, RuleMeta, ScannerPlugin, Severity } from '@dl-sentinel/core';
 import { SEVERITY_ORDER } from '@dl-sentinel/core';
 import { BUILTIN_SCANNERS } from '@dl-sentinel/preset';
 import { CliUsageError, parseFlags } from '../args.js';
@@ -18,6 +18,7 @@ interface RuleRow {
   confidence: Confidence;
   category: Category;
   scanner: string;
+  compliance?: RuleMeta['compliance'];
 }
 
 /** `sentinel rules` — list every rule from the built-in scanners. */
@@ -69,10 +70,25 @@ function toRows(scanners: readonly ScannerPlugin[]): RuleRow[] {
         confidence: rule.defaultConfidence,
         category: rule.category,
         scanner: scanner.id,
+        // Omitted (never a key with an `undefined` value survives
+        // JSON.stringify) for rules with no canonical compliance mapping.
+        compliance: rule.compliance,
       });
     }
   }
   return rows;
+}
+
+/**
+ * Compact "CWE-89 · A03:2021" style label for a rule's compliance mapping.
+ * Returns undefined when the rule has none, so callers can omit the segment
+ * entirely rather than print an empty one.
+ */
+function complianceLabel(compliance: RuleMeta['compliance']): string | undefined {
+  const parts: string[] = [];
+  if (compliance?.cwe && compliance.cwe.length > 0) parts.push(compliance.cwe.join(', '));
+  if (compliance?.owasp && compliance.owasp.length > 0) parts.push(compliance.owasp.join(', '));
+  return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 
 function severityPaint(colors: ColorFns, severity: Severity): (text: string) => string {
@@ -112,7 +128,11 @@ function renderTable(scanners: readonly ScannerPlugin[], colors: ColorFns): stri
       const severity = severityPaint(colors, rule.severity)(rule.severity.padEnd(sevWidth));
       const confidence = colors.dim(rule.defaultConfidence.padEnd(confWidth));
       const category = rule.category.padEnd(catWidth);
-      lines.push(`  ${id}  ${severity}  ${confidence}  ${category}  ${rule.title}`);
+      const compliance = complianceLabel(rule.compliance);
+      const complianceSuffix = compliance ? `  ${colors.dim(compliance)}` : '';
+      lines.push(
+        `  ${id}  ${severity}  ${confidence}  ${category}  ${rule.title}${complianceSuffix}`,
+      );
     }
   }
   lines.push('');

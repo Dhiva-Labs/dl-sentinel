@@ -678,6 +678,23 @@ input::placeholder {
   color: var(--sev-info);
 }
 
+/* ---------- Compliance chips (CWE / OWASP Top 10 ids) ---------- */
+
+.compliance-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.compliance-chip {
+  background: var(--bg-inset);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+}
+
 /* ---------- Tables ---------- */
 
 .table-scroll {

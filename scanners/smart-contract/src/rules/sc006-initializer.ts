@@ -74,6 +74,9 @@ export const sc006Initializer: RuleDefinition = {
     recommendation:
       'Guard the initializer with an access-control modifier and/or a one-time-call guard.',
     references: [],
+    // No SWC reference to anchor to, but the description is a direct, textbook
+    // match for "no authorization check guards this sensitive function".
+    compliance: { cwe: ['CWE-862'] },
   },
   evaluate,
 };
