@@ -10,6 +10,11 @@ import { sc009Pragma } from './sc009-pragma.js';
 import { sc010Randomness } from './sc010-randomness.js';
 import { sc011Deprecated } from './sc011-deprecated.js';
 import { sc012SetterEvents } from './sc012-setter-events.js';
+import { sc013CrossFunctionReentrancy } from './sc013-cross-function-reentrancy.js';
+import { sc014UnprotectedUpgrade } from './sc014-unprotected-upgrade.js';
+import { sc015UncheckedErc20Transfer } from './sc015-unchecked-erc20-transfer.js';
+import { sc016ZeroAddressCheck } from './sc016-zero-address-check.js';
+import { sc017DelegatecallInLoop } from './sc017-delegatecall-in-loop.js';
 import type { RuleDefinition } from './types.js';
 
 export const allRules: readonly RuleDefinition[] = [
@@ -25,6 +30,11 @@ export const allRules: readonly RuleDefinition[] = [
   sc010Randomness,
   sc011Deprecated,
   sc012SetterEvents,
+  sc013CrossFunctionReentrancy,
+  sc014UnprotectedUpgrade,
+  sc015UncheckedErc20Transfer,
+  sc016ZeroAddressCheck,
+  sc017DelegatecallInLoop,
 ];
 
 export type { RuleContext, RuleDefinition } from './types.js';
@@ -41,4 +51,9 @@ export {
   sc010Randomness,
   sc011Deprecated,
   sc012SetterEvents,
+  sc013CrossFunctionReentrancy,
+  sc014UnprotectedUpgrade,
+  sc015UncheckedErc20Transfer,
+  sc016ZeroAddressCheck,
+  sc017DelegatecallInLoop,
 };

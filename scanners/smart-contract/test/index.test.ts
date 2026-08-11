@@ -18,7 +18,7 @@ describe('smartContractScanner: plugin shape', () => {
     expect(namedExport).toBe(smartContractScanner);
   });
 
-  it('declares all twelve rules with complete RuleMeta', () => {
+  it('declares all seventeen rules with complete RuleMeta', () => {
     const ids = smartContractScanner.rules.map((r) => r.id).sort();
     expect(ids).toEqual([
       'SC001',
@@ -33,6 +33,11 @@ describe('smartContractScanner: plugin shape', () => {
       'SC010',
       'SC011',
       'SC012',
+      'SC013',
+      'SC014',
+      'SC015',
+      'SC016',
+      'SC017',
     ]);
     for (const rule of smartContractScanner.rules) {
       expect(rule.id).toMatch(/^SC\d{3}$/);
