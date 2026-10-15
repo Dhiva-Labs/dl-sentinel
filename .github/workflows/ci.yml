@@ -4,10 +4,27 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    name: ci (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            arch: x64
+            machine: x86_64
+            file-magic: x86-64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+            machine: aarch64
+            file-magic: ARM aarch64
     steps:
       - uses: actions/checkout@v4
 
@@ -15,6 +32,16 @@ jobs:
         with:
           node-version: 20
           cache: npm
+
+      - name: Assert the Node.js binary matches the runner architecture
+        run: |
+          uname -m
+          test "$(uname -m)" = "${{ matrix.machine }}"
+          node -p "process.version + ' ' + process.platform + '/' + process.arch"
+          test "$(node -p process.arch)" = "${{ matrix.arch }}"
+          info="$(file -L "$(command -v node)")"
+          echo "$info"
+          echo "$info" | grep -q "${{ matrix.file-magic }}"
 
       - name: Install dependencies
         run: npm ci
@@ -30,3 +57,265 @@ jobs:
 
       - name: Test
         run: npm run test
+
+  deb:
+    name: deb (built on ${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            arch: x64
+            machine: x86_64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+            machine: aarch64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Assert runner architecture
+        run: |
+          uname -m
+          test "$(uname -m)" = "${{ matrix.machine }}"
+
+      - name: Bundle the CLI
+        run: |
+          npm ci
+          npm run bundle:cli
+          ls -l packaging/cli-bundle
+
+      - name: Build the .deb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential debhelper
+          dpkg-buildpackage -us -uc -b
+          mkdir -p out
+          mv ../dlsentinel_*.deb out/
+          ls -l out
+
+      - name: Inspect the package
+        run: |
+          deb="$(ls out/dlsentinel_*.deb)"
+          dpkg-deb --info "$deb"
+          dpkg-deb --contents "$deb"
+          # the bundle is plain JavaScript and nodejs is a dependency, so the package
+          # is architecture-independent: no native code and no bundled node binary
+          test "$(dpkg-deb -f "$deb" Architecture)" = "all"
+          dpkg-deb --contents "$deb" | grep -q "usr/share/dlsentinel/sentinel.mjs"
+          dpkg-deb --contents "$deb" | grep -q "usr/bin/dl-sentinel"
+          if dpkg-deb --fsys-tarfile "$deb" | tar -t | grep -E '\.(so|node|a|dll|dylib)$'; then
+            echo "native files in package"
+            exit 1
+          fi
+          (cd out && sha256sum *.deb | tee SHA256SUMS)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dlsentinel-deb-built-on-${{ matrix.arch }}
+          path: out/
+          if-no-files-found: error
+
+  deb-parity:
+    name: deb contents identical when built on x64 and arm64
+    needs: deb
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dlsentinel-deb-built-on-*
+          path: debs
+      - name: Compare
+        run: |
+          ls -R debs
+          for a in x64 arm64; do
+            mkdir -p "ctl-$a"
+            dpkg-deb -e "$(ls debs/dlsentinel-deb-built-on-$a/dlsentinel_*.deb)" "ctl-$a"
+            cat "debs/dlsentinel-deb-built-on-$a/SHA256SUMS"
+          done
+          diff -u ctl-x64/md5sums ctl-arm64/md5sums
+          echo "installed files are byte-for-byte identical on both builds"
+
+  deb-install:
+    name: install and run on ${{ matrix.arch }} (deb built on ${{ matrix.built-on }})
+    needs: deb
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            arch: x64
+            machine: x86_64
+            dpkg-arch: amd64
+            file-magic: x86-64
+            built-on: x64
+          - os: ubuntu-24.04
+            arch: x64
+            machine: x86_64
+            dpkg-arch: amd64
+            file-magic: x86-64
+            built-on: arm64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+            machine: aarch64
+            dpkg-arch: arm64
+            file-magic: ARM aarch64
+            built-on: x64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+            machine: aarch64
+            dpkg-arch: arm64
+            file-magic: ARM aarch64
+            built-on: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dlsentinel-deb-built-on-${{ matrix.built-on }}
+          path: debs
+
+      - name: Assert runner architecture
+        run: |
+          test "$(uname -m)" = "${{ matrix.machine }}"
+          test "$(dpkg --print-architecture)" = "${{ matrix.dpkg-arch }}"
+
+      - name: Install the package (nodejs comes from Ubuntu's own archive)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ./debs/dlsentinel_*_all.deb
+          dpkg -s dlsentinel | grep -E '^(Package|Version|Architecture|Depends):'
+          info="$(file -L /usr/bin/node)"
+          echo "$info"
+          echo "$info" | grep -q "${{ matrix.file-magic }}"
+          /usr/bin/node --version
+
+      - name: Run the installed CLI on the test fixtures
+        run: |
+          work="$RUNNER_TEMP/fixtures"
+          cp -r tests/fixtures "$work"
+          dl-sentinel --version
+          sentinel --version
+          dl-sentinel --help > /dev/null
+          dl-sentinel rules | head -5
+
+          code=0
+          dl-sentinel scan "$work/vulnerable-app" --format json --quiet > report.json || code=$?
+          echo "vulnerable-app exit code: $code"
+          test "$code" -eq 1
+          jq -e '(.findings | length) > 0 and (.scannersRun | length) == 6 and (.errors | length) == 0' report.json
+          jq '{tool, stats, scannersRun}' report.json
+
+          code=0
+          dl-sentinel scan "$work/clean-app" --quiet > /dev/null || code=$?
+          echo "clean-app exit code: $code"
+          test "$code" -eq 0
+
+  docker:
+    name: docker image and compose stack (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux/amd64
+            machine: x86_64
+            node-arch: x64
+          - os: ubuntu-24.04-arm
+            platform: linux/arm64
+            machine: aarch64
+            node-arch: arm64
+    env:
+      COMPOSE_PROJECT_NAME: dl-sentinel
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # check only: the image is loaded into the runner's local daemon, never pushed
+      - name: Build the image for ${{ matrix.platform }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          push: false
+          load: true
+          provenance: false
+          tags: dl-sentinel-sentinel:latest
+          cache-from: type=gha,scope=docker-${{ matrix.machine }}
+          cache-to: type=gha,mode=max,scope=docker-${{ matrix.machine }}
+
+      - name: Verify the image architecture
+        run: |
+          arch="$(docker image inspect dl-sentinel-sentinel:latest --format '{{.Os}}/{{.Architecture}}')"
+          echo "image platform: $arch"
+          test "$arch" = "${{ matrix.platform }}"
+          docker run --rm --entrypoint uname dl-sentinel-sentinel:latest -m
+          test "$(docker run --rm --entrypoint uname dl-sentinel-sentinel:latest -m)" = "${{ matrix.machine }}"
+          docker run --rm --entrypoint node dl-sentinel-sentinel:latest -p "process.version + ' ' + process.platform + '/' + process.arch"
+          test "$(docker run --rm --entrypoint node dl-sentinel-sentinel:latest -p process.arch)" = "${{ matrix.node-arch }}"
+
+      - name: Start the compose stack
+        run: |
+          token="$(openssl rand -hex 24)"
+          echo "::add-mask::$token"
+          echo "SENTINEL_API_TOKEN=$token" >> "$GITHUB_ENV"
+          # the shipped compose file is used as is; the override only mounts the fixtures to scan
+          cat > "$RUNNER_TEMP/compose.ci.yml" <<EOF
+          services:
+            sentinel:
+              volumes:
+                - $GITHUB_WORKSPACE/tests/fixtures:/scans/fixtures:ro
+          EOF
+          echo "COMPOSE_FILE=compose.yaml:$RUNNER_TEMP/compose.ci.yml" >> "$GITHUB_ENV"
+          export SENTINEL_API_TOKEN="$token" COMPOSE_FILE="compose.yaml:$RUNNER_TEMP/compose.ci.yml"
+          # use the image built above instead of building a second time
+          docker compose config --images | tee images.txt
+          grep -qx dl-sentinel-sentinel images.txt
+          docker compose up -d --no-build
+          docker compose ps
+
+      - name: Wait for the API and dashboard
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8752/health -o health.json 2>/dev/null; then break; fi
+            sleep 2
+          done
+          cat health.json
+          curl -fsS http://localhost:8752/ | grep -qi "<html"
+
+      - name: Run a scan through the API
+        run: |
+          api=http://localhost:8752
+          auth="Authorization: Bearer $SENTINEL_API_TOKEN"
+          curl -fsS -H "$auth" "$api/api/me" | jq -e '.role == "admin"'
+          # without a token the API must refuse
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$api/api/scans")" = "401"
+          id="$(curl -fsS -H "$auth" -H 'Content-Type: application/json' \
+            -d '{"path": "/scans/fixtures/vulnerable-app"}' "$api/api/scans" | jq -r .id)"
+          echo "scan id: $id"
+          status=queued
+          for i in $(seq 1 60); do
+            status="$(curl -fsS -H "$auth" "$api/api/scans/$id" | jq -r .status)"
+            echo "status: $status"
+            if [ "$status" = completed ] || [ "$status" = failed ]; then break; fi
+            sleep 2
+          done
+          test "$status" = completed
+          curl -fsS -H "$auth" "$api/api/scans/$id/findings" | jq -e 'length > 0'
+          curl -fsS -H "$auth" "$api/api/rules" | jq -e 'length >= 88'
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail=200
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v --remove-orphans
