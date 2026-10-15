@@ -1,5 +1,10 @@
 # DL Sentinel
 
+[![ARM64 builds](https://github.com/Dhiva-Labs/dl-sentinel/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Dhiva-Labs/dl-sentinel/actions/workflows/ci.yml)
+![Linux x64 | arm64](https://img.shields.io/badge/Linux-x64%20%7C%20arm64-informational?logo=linux&logoColor=white)
+![Docker amd64 | arm64](https://img.shields.io/badge/Docker-amd64%20%7C%20arm64-informational?logo=docker&logoColor=white)
+![Node 20+](https://img.shields.io/badge/node-20%2B-informational?logo=nodedotjs&logoColor=white)
+
 DL Sentinel is a developer-focused security scanning platform by DhivaLabs. It scans a
 repository for exposed secrets, vulnerable dependencies, insecure source code patterns,
 container and infrastructure misconfiguration, API definition security issues, and smart-contract
@@ -75,6 +80,27 @@ sentinel scan . --fail-on critical,high
 sentinel rules                        # list all rules from registered scanners
 sentinel version
 ```
+
+## Platforms
+
+DL Sentinel runs on **Linux x64 and Linux arm64 (aarch64)**. Everything that ships is plain
+JavaScript, so the three ways to run it behave the same on both:
+
+- **From source** (above): Node.js 20 or later. The only runtime dependency is `yaml`, which is
+  pure JavaScript; the native binaries in the dev toolchain (esbuild, rollup) have arm64
+  builds.
+- **Debian package** (`dlsentinel`): `Architecture: all`. It contains one bundled JavaScript
+  file and depends on the distribution's own `nodejs (>= 18)`, so it bundles no `node` binary
+  and no native modules, and the same `.deb` installs on amd64 and arm64.
+- **Docker / Compose** ([docs/deployment.md](docs/deployment.md)): `docker compose up` builds
+  the image for the host's architecture (the `node:20-alpine` base is multi-arch). No image is
+  published; you build it where it runs.
+
+CI runs the whole test suite on Ubuntu 24.04 (x64) and Ubuntu 24.04 arm64. On both it also
+builds the `.deb` and checks that the files are byte-for-byte identical, installs each build on
+each architecture (including the x64-built package on arm64, and the reverse) and scans the
+test fixtures with the installed command, builds the Docker image natively, starts the compose
+stack and runs a scan through the HTTP API. Windows is not covered.
 
 ## Configuration
 

@@ -52,7 +52,10 @@ SENTINEL_API_TOKEN=change-me docker compose up -d
 ```
 
 Mount every directory you want scannable read-only under `/scans` (edit the `volumes:` list),
-and keep the named `sentinel-data` volume for persistence. The image runs as the non-root
+and keep the named `sentinel-data` volume for persistence. The image builds for `linux/amd64`
+and `linux/arm64` (the `node:20-alpine` base is multi-arch): `docker compose up` builds for the
+architecture of the host, so the same command works on an arm64 server such as a Raspberry Pi
+or an AWS Graviton instance. The image runs as the non-root
 `node` user, pins its base tag, and passes DL Sentinel's own infra scanner. These files are
 authored and scanner-verified in CI-less fashion — build the image on a Docker-capable host.
 
