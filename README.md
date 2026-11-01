@@ -3,6 +3,7 @@
 [![ARM64 builds](https://github.com/Dhiva-Labs/dl-sentinel/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Dhiva-Labs/dl-sentinel/actions/workflows/ci.yml)
 ![Linux x64 | arm64](https://img.shields.io/badge/Linux-x64%20%7C%20arm64-informational?logo=linux&logoColor=white)
 ![Docker amd64 | arm64](https://img.shields.io/badge/Docker-amd64%20%7C%20arm64-informational?logo=docker&logoColor=white)
+![Linux: deb | rpm | Arch](https://img.shields.io/badge/Linux-deb%20%7C%20rpm%20%7C%20Arch-informational?logo=linux&logoColor=white)
 ![Node 20+](https://img.shields.io/badge/node-20%2B-informational?logo=nodedotjs&logoColor=white)
 
 DL Sentinel is a developer-focused security scanning platform by DhivaLabs. It scans a
@@ -84,7 +85,7 @@ sentinel version
 ## Platforms
 
 DL Sentinel runs on **Linux x64 and Linux arm64 (aarch64)**. Everything that ships is plain
-JavaScript, so the three ways to run it behave the same on both:
+JavaScript, so every way to run it behaves the same on both:
 
 - **From source** (above): Node.js 20 or later. The only runtime dependency is `yaml`, which is
   pure JavaScript; the native binaries in the dev toolchain (esbuild, rollup) have arm64
@@ -92,6 +93,22 @@ JavaScript, so the three ways to run it behave the same on both:
 - **Debian package** (`dlsentinel`): `Architecture: all`. It contains one bundled JavaScript
   file and depends on the distribution's own `nodejs (>= 18)`, so it bundles no `node` binary
   and no native modules, and the same `.deb` installs on amd64 and arm64.
+- **Fedora, RHEL and openSUSE** (`dlsentinel-<version>-1.noarch.rpm`) and **Arch Linux**
+  (`dlsentinel-<version>-1-any.pkg.tar.zst`): the same files as the `.deb`, repackaged, with a
+  dependency on the distribution's `/usr/bin/node` (Fedora's `nodejsNN-bin`, Arch's `nodejs`).
+  The AUR recipe `dlsentinel-bin` (`dlsentinel-bin-<version>-aur.tar.gz`, PKGBUILD + .SRCINFO)
+  repackages the release's `.deb`. From the next release on these files, and the `.deb` as
+  `dlsentinel_<version>_all.deb`, are attached to each GitHub release:
+
+  ```bash
+  sudo dnf install ./dlsentinel-<version>-1.noarch.rpm                            # Fedora, RHEL
+  sudo zypper install --allow-unsigned-rpm ./dlsentinel-<version>-1.noarch.rpm    # openSUSE
+  sudo pacman -U ./dlsentinel-<version>-1-any.pkg.tar.zst                         # Arch
+  ```
+
+  The `.rpm` is unsigned and does not pin a Node.js version (Fedora names its Node.js packages
+  per major version); the bundle needs Node.js 18 or later, which current Fedora, openSUSE
+  Tumbleweed and Arch all ship. No AppImage or Flatpak: this is a command-line tool.
 - **Docker / Compose** ([docs/deployment.md](docs/deployment.md)): `docker compose up` builds
   the image for the host's architecture (the `node:20-alpine` base is multi-arch). No image is
   published; you build it where it runs.
@@ -100,7 +117,11 @@ CI runs the whole test suite on Ubuntu 24.04 (x64) and Ubuntu 24.04 arm64. On bo
 builds the `.deb` and checks that the files are byte-for-byte identical, installs each build on
 each architecture (including the x64-built package on arm64, and the reverse) and scans the
 test fixtures with the installed command, builds the Docker image natively, starts the compose
-stack and runs a scan through the HTTP API. Windows is not covered.
+stack and runs a scan through the HTTP API. The `.rpm` is installed on Fedora and openSUSE
+Tumbleweed (x64 and arm64) and the Arch package on Arch Linux (x64; Arch has no official arm64
+image, so arm64 gets a static check), and each runs the same command checks and fixture scans as
+the `.deb` against that distribution's own Node.js; the AUR recipe is built with `makepkg` and
+put through the same checks. Windows is not covered.
 
 ## Configuration
 
