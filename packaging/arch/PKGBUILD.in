@@ -1,0 +1,28 @@
+# Maintainer: Dhiva Labs <dhivakar1010@gmail.com>
+#
+# AUR package. It repackages the .deb from the GitHub release (one bundled
+# JavaScript file run by the system Node.js, so a single "any" package), so
+# Arch users run the same build as every other distribution.
+# packaging/arch/aur.sh renders this file for each release (version and
+# checksum) and checks it with makepkg; the rendered PKGBUILD and .SRCINFO
+# are what gets pushed to the AUR.
+pkgname=@NAME@-bin
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc='@SUMMARY@'
+arch=('any')
+url='@HOMEPAGE@'
+license=('@LICENSE@')
+depends=(@ARCH_DEPENDS@)
+provides=('@NAME@')
+conflicts=('@NAME@')
+options=('!strip' '!debug')
+source=("@RELEASE_URL@/@DEB@")
+sha256sums=('@SHA256@')
+
+package() {
+  bsdtar -xf data.tar.* -C "$pkgdir"
+  rm -rf "$pkgdir/usr/share/lintian"
+  find "$pkgdir/usr/share/doc" -name changelog.Debian.gz -delete
+  install -Dm644 "$pkgdir/usr/share/doc/@NAME@/copyright" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
