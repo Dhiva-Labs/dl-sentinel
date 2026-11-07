@@ -3,7 +3,7 @@
 DL Sentinel is a developer-focused security platform that scans repositories, dependencies,
 containers, infrastructure configuration, APIs, secrets, and smart contracts, producing
 structured findings and audit reports. It is designed for local/self-hosted operation first,
-with CI/CD usage as a first-class follow-up.
+with CI/CD usage (the GitHub Action) built on the same scan.
 
 ## Design principles
 
