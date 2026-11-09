@@ -11,6 +11,8 @@ repository for exposed secrets, vulnerable dependencies, insecure source code pa
 container and infrastructure misconfiguration, API definition security issues, and smart-contract
 risk patterns, then produces structured findings and reports.
 
+**Documentation:** step-by-step guides at [learn.dhivalabs.com](https://learn.dhivalabs.com/apps/dl-sentinel/): [install](https://learn.dhivalabs.com/apps/dl-sentinel/install) · [beginner guide](https://learn.dhivalabs.com/apps/dl-sentinel/getting-started) · [troubleshooting](https://learn.dhivalabs.com/apps/dl-sentinel/faq). New to the topic? Try the [Security and safe habits](https://learn.dhivalabs.com/tracks/security/) learning track.
+
 It is built for teams that want static security scanning they can run locally or self-host,
 without sending source code to a third-party service — CI/CD usage is a first-class follow-up on
 top of the same local scan.
