@@ -1,10 +1,9 @@
 # Rules
 
 This page covers the rule-id namespace scheme, what severity and confidence mean, how `sentinel
-rules` is expected to list rules, and how to author a new rule. It is not a catalog of specific
-rules — see [Scanners](scanners.md) for what each scanner area covers at a contract level, and
-consult a scanner's own `rules: RuleMeta[]` array (once implemented) for the definitive list it
-ships.
+rules` lists rules, and how to author a new rule. See [Scanners](scanners.md) for what each
+scanner covers, and run `sentinel rules` (or read a scanner's own `rules: RuleMeta[]` array) for
+the definitive list. There are 88 rules across the six scanners.
 
 ## Rule id namespaces
 
@@ -20,9 +19,8 @@ prefix identifies the producing scanner:
 | `A` | api | `A001` |
 | `SC` | smart-contract | `SC001` |
 
-The "Example" column shows the id *format*, not a claim that these specific rules exist — no
-scanner has shipped a rule catalog yet (see [Scanners](scanners.md)). The one concrete id in the
-codebase today is `S001` ("Hardcoded credential detected"), used as the illustrative example in
+The "Example" column shows the id format. `S001` ("AWS access key id committed") is one of the
+shipped rules, and is the illustrative example in
 [Scanner interface](scanner-interface.md#skeleton) and [Finding schema](finding-schema.md).
 
 The `Finding.category` enum in `packages/core/src/types.ts` additionally includes `config` and

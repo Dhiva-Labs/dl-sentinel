@@ -14,8 +14,8 @@ risk patterns, then produces structured findings and reports.
 **Documentation:** step-by-step guides at [learn.dhivalabs.com](https://learn.dhivalabs.com/apps/dl-sentinel/): [install](https://learn.dhivalabs.com/apps/dl-sentinel/install) · [beginner guide](https://learn.dhivalabs.com/apps/dl-sentinel/getting-started) · [troubleshooting](https://learn.dhivalabs.com/apps/dl-sentinel/faq). New to the topic? Try the [Security and safe habits](https://learn.dhivalabs.com/tracks/security/) learning track.
 
 It is built for teams that want static security scanning they can run locally or self-host,
-without sending source code to a third-party service — CI/CD usage is a first-class follow-up on
-top of the same local scan.
+without sending source code to a third-party service. The same local scan also runs in CI, as a
+GitHub Action that checks pull requests.
 
 ## Scanners
 
@@ -30,8 +30,38 @@ top of the same local scan.
 - **Smart contract** — analyzes Solidity/EVM source with a contract-level model (same-file
   inheritance, modifier bodies, call graph) rather than line heuristics alone.
 
-88 rules in total, 76 of them mapped to CWE and OWASP Top 10 (2021) — see
-[docs/scanners.md](docs/scanners.md) and [docs/rules.md](docs/rules.md).
+88 rules in total (`sentinel rules` prints the live count). 79 carry a CWE mapping, and 55 of
+those also carry an OWASP Top 10 (2021) category; the other 9 are hygiene or informational checks
+left unmapped on purpose. See [docs/scanners.md](docs/scanners.md) and
+[docs/rules.md](docs/rules.md).
+
+## Engineering highlights
+
+- **Attack-path correlation** — each chain rule documents the findings it needs, a bound on how
+  many paths it emits, and why confidence stays `potential` unless the infrastructure graph ties
+  the findings to the same service. Confidence is capped at `likely`. Seven rules, e.g.
+  [`ap001-privileged-exposure.ts`](packages/attack-paths/src/rules/ap001-privileged-exposure.ts);
+  tests in [`packages/attack-paths/test`](packages/attack-paths/test).
+- **PR-diff GitHub Action** — scans the head tree, builds a baseline from a committed file or a
+  checked-out base tree, and reports only what the PR introduced as a sticky comment, Step
+  Summary and SARIF file ([`apps/action/src/scan.ts`](apps/action/src/scan.ts),
+  [tests](apps/action/test)).
+- **SARIF 2.1.0 output** — [`packages/reporting/src/sarif.ts`](packages/reporting/src/sarif.ts).
+- **Self-hosted API with RBAC and a scan queue** — `viewer`, `operator` and `admin` roles
+  ([`permissions.ts`](apps/api/src/permissions.ts)); a bounded in-process worker pool that turns
+  a failed scan into a `failed` record with a sanitized error instead of crashing the server
+  ([`queue.ts`](apps/api/src/queue.ts)). Role enforcement, token lifecycle and audit-log
+  attribution are tested in [`rbac.test.ts`](apps/api/test/rbac.test.ts).
+- **Solidity analysis without an external tool** — a hand-written parser
+  ([`parser.ts`](scanners/smart-contract/src/parser.ts)) feeds a contract model with same-file
+  inheritance, modifier bodies and a call graph, so access-control rules look at what a
+  modifier does. It has not been compared against other tools such as Slither.
+- **Cross-architecture CI** — the suite, the `.deb`/`.rpm`/Arch packages and the Docker stack
+  are built and exercised on x64 and arm64 ([`ci.yml`](.github/workflows/ci.yml)).
+
+At this commit the suite is 141 test files and 1531 tests (`npm test`). Many scanner rules have
+a small positive and negative fixture pair, so the number of fixture files on disk is much
+larger than the number of test files.
 
 ## Beyond scanning
 
@@ -211,11 +241,19 @@ Licensed under the MIT License. See [LICENSE](LICENSE).
 
 ## Project status
 
-Version 0.1.0. Everything described above is implemented and covered by the test suite: the
-scan engine and six scanners, reporting, baselines and suppressions, the `sentinel` CLI, the
+Version 0.1.0, the first and only release so far. It is early software: the GitHub release
+carries no packaged files yet (see [Platforms](#platforms)), and the Action is pinned by tag.
+The scan engine and six scanners, reporting, baselines and suppressions, the `sentinel` CLI, the
 GitHub Action, the self-hosted API server (async scan queue, schedules, history and trends,
-RBAC, notifications), the web dashboard, the infrastructure graph, and plugin loading.
+RBAC, notifications), the web dashboard, the infrastructure graph and plugin loading are
+implemented and covered by the test suite.
 
-Every scanner is a precision-tuned static analyzer, not a prover: rules are documented to
-under-report rather than guess, findings carry honest severity and confidence, and the
-per-component limitations are written down throughout [docs/](docs/) rather than glossed over.
+Limits to know about:
+
+- The scanners are static pattern analyzers, not provers. Rules are written to under-report
+  rather than guess, and findings carry severity and confidence, but false-positive and
+  false-negative rates have not been measured against a benchmark corpus.
+- The Solidity parser is hand-written and has not been compared against other tools.
+- There is no third-party security audit, and the project has no known external users yet.
+- Linux x64 and arm64 only; Windows and macOS are not tested.
+- Attack paths are candidates for review, not statements that something is exploitable.
